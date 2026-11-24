@@ -1,16 +1,21 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getDateKey, isDateKey } from "./dateUtils";
 
 export type Task = {
   id: number;
   title: string;
   completed: boolean;
+  dueDate: string;
 };
 
+type StoredTask = Omit<Task, "dueDate"> & { dueDate?: string };
+
 const STORAGE_KEY = "@taskmaster/tasks/v1";
+const today = getDateKey(new Date());
 
 export const initialTasks: Task[] = [
-  { id: 1, title: "Write down a task", completed: false },
-  { id: 2, title: "Take a break", completed: false },
+  { id: 1, title: "Write down a task", completed: false, dueDate: today },
+  { id: 2, title: "Take a break", completed: false, dueDate: today },
 ];
 
 export async function loadTasks(): Promise<Task[]> {
@@ -24,7 +29,7 @@ export async function loadTasks(): Promise<Task[]> {
     throw new Error("Saved task data must be a list.");
   }
 
-  const tasks = parsed.filter(isTask);
+  const tasks = parsed.filter(isStoredTask);
   if (tasks.length !== parsed.length) {
     throw new Error("Saved task data contains an invalid task.");
   }
@@ -33,7 +38,10 @@ export async function loadTasks(): Promise<Task[]> {
     throw new Error("Saved task data contains duplicate task IDs.");
   }
 
-  return tasks;
+  return tasks.map((task) => ({
+    ...task,
+    dueDate: task.dueDate ?? today,
+  }));
 }
 
 export async function saveTasks(tasks: Task[]): Promise<void> {
@@ -44,7 +52,7 @@ export async function resetSavedTasks(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEY);
 }
 
-function isTask(value: unknown): value is Task {
+function isStoredTask(value: unknown): value is StoredTask {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -55,6 +63,7 @@ function isTask(value: unknown): value is Task {
     typeof value.title === "string" &&
     value.title.trim().length > 0 &&
     "completed" in value &&
-    typeof value.completed === "boolean"
+    typeof value.completed === "boolean" &&
+    (!("dueDate" in value) || isDateKey(value.dueDate))
   );
 }

@@ -7,9 +7,9 @@ import { useFonts } from "expo-font";
 import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import {
   Animated,
-  Alert,
   Easing,
   LayoutAnimation,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +19,7 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { dateFromKey, getDateKey, getMonthGrid } from "./dateUtils";
 import {
   loadTasks,
   resetSavedTasks,
@@ -70,6 +71,13 @@ function getStorageErrorDetails(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected storage error.";
 }
 
+type Confirmation = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+};
+
 export default function App() {
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
@@ -85,14 +93,25 @@ export default function App() {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
-  const [taskTitleWidths, setTaskTitleWidths] = useState<Record<number, number>>(
-    {},
-  );
+  const [taskTitleLayouts, setTaskTitleLayouts] = useState<
+    Record<number, { width: number; strikeTop: number }>
+  >({});
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
+  const [todayKey] = useState(() => getDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [displayedMonth, setDisplayedMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1, 12);
+  });
+  const [reschedulingTaskId, setReschedulingTaskId] = useState<number | null>(
+    null,
+  );
+  const [rescheduleMonth, setRescheduleMonth] = useState(displayedMonth);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +166,7 @@ export default function App() {
     });
   }, [storageStatus, tasks]);
 
-  const today = new Date().toLocaleDateString("en-US", {
+  const today = dateFromKey(todayKey).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -159,25 +178,46 @@ export default function App() {
 
   const theme = pastelRainbowTheme;
   const styles = createStyles(theme.colors);
-  const completedTaskCount = tasks.filter((task) => task.completed).length;
+  const tasksOnSelectedDate = tasks.filter(
+    (task) => task.dueDate === selectedDate,
+  );
+  const completedTaskCount = tasksOnSelectedDate.filter(
+    (task) => task.completed,
+  ).length;
   const progressPercent =
-    tasks.length === 0 ? 0 : (completedTaskCount / tasks.length) * 100;
+    tasksOnSelectedDate.length === 0
+      ? 0
+      : (completedTaskCount / tasksOnSelectedDate.length) * 100;
   const progressMessage =
-    tasks.length === 0
+    tasksOnSelectedDate.length === 0
       ? "Add a task to get started."
-      : completedTaskCount === tasks.length
+      : completedTaskCount === tasksOnSelectedDate.length
         ? "All done! You did it. Go celebrate!"
         : completedTaskCount === 0
           ? "Let's get one small win on the board."
           : completedTaskCount === 1
             ? "One down! You're off to a lovely start."
             : `${completedTaskCount} down - you're on a roll!`;
+  const tasksByDate = tasks.reduce<Record<string, number>>((counts, task) => {
+    counts[task.dueDate] = (counts[task.dueDate] ?? 0) + 1;
+    return counts;
+  }, {});
+  const monthDays = getMonthGrid(displayedMonth);
+  const rescheduleDays = getMonthGrid(rescheduleMonth);
+  const reschedulingTask = tasks.find(
+    (task) => task.id === reschedulingTaskId,
+  );
+  const selectedDateLabel = dateFromKey(selectedDate).toLocaleDateString(
+    "en-US",
+    { weekday: "long", month: "long", day: "numeric" },
+  );
 
   function animatePanelChange() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }
 
   function toggleTask(id: number) {
+    animatePanelChange();
     setTasks((currentTasks) =>
       currentTasks.map((task) =>
         task.id === id ? { ...task, completed: !task.completed } : task,
@@ -191,9 +231,10 @@ export default function App() {
       return;
     }
 
+    animatePanelChange();
     setTasks((currentTasks) => [
       ...currentTasks,
-      { id: nextTaskId, title, completed: false },
+      { id: nextTaskId, title, completed: false, dueDate: selectedDate },
     ]);
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
@@ -218,20 +259,14 @@ export default function App() {
   }
 
   function confirmResetSavedTasks() {
-    Alert.alert(
-      "Reset saved tasks?",
-      "This removes the saved list and restores the sample tasks.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reset",
-          style: "destructive",
-          onPress: () => {
-            void resetSavedTasksAndRetry();
-          },
-        },
-      ],
-    );
+    setConfirmation({
+      title: "Reset saved tasks?",
+      message: "This removes the saved list and restores the sample tasks.",
+      confirmLabel: "Reset",
+      onConfirm: () => {
+        void resetSavedTasksAndRetry();
+      },
+    });
   }
 
   function saveEditedTask(id: number) {
@@ -244,42 +279,249 @@ export default function App() {
     setTasks((currentTasks) =>
       currentTasks.map((task) => (task.id === id ? { ...task, title } : task)),
     );
-    setTaskTitleWidths((currentWidths) => {
-      const remainingWidths = { ...currentWidths };
-      delete remainingWidths[id];
-      return remainingWidths;
+    setTaskTitleLayouts((currentLayouts) => {
+      const remainingLayouts = { ...currentLayouts };
+      delete remainingLayouts[id];
+      return remainingLayouts;
     });
     setEditedTaskTitle("");
     setEditingTaskId(null);
   }
 
   function confirmDeleteTask(id: number, title: string) {
-    Alert.alert("Delete task?", `Delete "${title}"?`, [
-      {
-        text: "Cancel",
-        style: "cancel",
-        onPress: () => {
-          animatePanelChange();
-          setSelectedTaskId(null);
-        },
+    setConfirmation({
+      title: "Delete task?",
+      message: `Delete "${title}"?`,
+      confirmLabel: "Delete",
+      onConfirm: () => {
+        animatePanelChange();
+        setTasks((currentTasks) =>
+          currentTasks.filter((task) => task.id !== id),
+        );
+        setTaskTitleLayouts((currentLayouts) => {
+          const remainingLayouts = { ...currentLayouts };
+          delete remainingLayouts[id];
+          return remainingLayouts;
+        });
+        setSelectedTaskId(null);
       },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          animatePanelChange();
-          setTasks((currentTasks) =>
-            currentTasks.filter((task) => task.id !== id),
-          );
-          setTaskTitleWidths((currentWidths) => {
-            const remainingWidths = { ...currentWidths };
-            delete remainingWidths[id];
-            return remainingWidths;
-          });
-          setSelectedTaskId(null);
-        },
-      },
-    ]);
+    });
+  }
+
+  function changeMonth(offset: number) {
+    setDisplayedMonth(
+      (currentMonth) =>
+        new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth() + offset,
+          1,
+          12,
+        ),
+    );
+  }
+
+  function selectDate(date: Date) {
+    animatePanelChange();
+    setSelectedDate(getDateKey(date));
+    setDisplayedMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+  }
+
+  function openRescheduleDialog(task: Task) {
+    const taskDate = dateFromKey(task.dueDate);
+    setReschedulingTaskId(task.id);
+    setRescheduleMonth(
+      new Date(taskDate.getFullYear(), taskDate.getMonth(), 1, 12),
+    );
+  }
+
+  function changeRescheduleMonth(offset: number) {
+    setRescheduleMonth(
+      (currentMonth) =>
+        new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth() + offset,
+          1,
+          12,
+        ),
+    );
+  }
+
+  function chooseRescheduleDate(date: Date) {
+    if (reschedulingTaskId === null) {
+      return;
+    }
+
+    const dateKey = getDateKey(date);
+    animatePanelChange();
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === reschedulingTaskId
+          ? { ...task, dueDate: dateKey }
+          : task,
+      ),
+    );
+    setSelectedDate(dateKey);
+    setDisplayedMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+    setSelectedTaskId(null);
+    setReschedulingTaskId(null);
+  }
+
+  function renderRescheduleDialog() {
+    return (
+      <Modal
+        visible={reschedulingTaskId !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReschedulingTaskId(null)}
+      >
+        <View style={styles.modalOverlay}>
+          {reschedulingTask && (
+            <SlidingPanel>
+              <View style={styles.datePickerDialog}>
+                <Text style={styles.confirmTitle}>Move task to a day</Text>
+                <Text style={styles.confirmMessage}>
+                  {reschedulingTask.title}
+                </Text>
+                <View style={styles.calendarHeader}>
+                  <Pressable
+                    style={styles.monthArrow}
+                    onPress={() => changeRescheduleMonth(-1)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous month"
+                  >
+                    <Text style={styles.monthArrowText}>‹</Text>
+                  </Pressable>
+                  <Text style={styles.monthTitle}>
+                    {rescheduleMonth.toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </Text>
+                  <Pressable
+                    style={styles.monthArrow}
+                    onPress={() => changeRescheduleMonth(1)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next month"
+                  >
+                    <Text style={styles.monthArrowText}>›</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.weekdaysRow}>
+                  {["M", "T", "W", "T", "F", "S", "S"].map(
+                    (weekday, index) => (
+                      <Text
+                        key={`${weekday}-${index}`}
+                        style={styles.weekdayLabel}
+                      >
+                        {weekday}
+                      </Text>
+                    ),
+                  )}
+                </View>
+                <View style={styles.calendarGrid}>
+                  {rescheduleDays.map((date, index) => {
+                    if (!date) {
+                      return (
+                        <View
+                          key={`empty-${index}`}
+                          style={styles.calendarCell}
+                        />
+                      );
+                    }
+
+                    const dateKey = getDateKey(date);
+                    const isTaskDate = dateKey === reschedulingTask.dueDate;
+                    return (
+                      <View key={dateKey} style={styles.calendarCell}>
+                        <Pressable
+                          style={[
+                            styles.calendarDay,
+                            isTaskDate && styles.calendarDaySelected,
+                          ]}
+                          onPress={() => chooseRescheduleDate(date)}
+                          accessibilityRole="button"
+                          accessibilityLabel={date.toLocaleDateString(
+                            "en-US",
+                            { month: "long", day: "numeric" },
+                          )}
+                          accessibilityState={{ selected: isTaskDate }}
+                        >
+                          <Text
+                            style={[
+                              styles.calendarDayText,
+                              isTaskDate && styles.calendarDayTextSelected,
+                            ]}
+                          >
+                            {date.getDate()}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                </View>
+                <View style={styles.datePickerFooter}>
+                  <Pressable
+                    style={styles.cancelButton}
+                    onPress={() => setReschedulingTaskId(null)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </SlidingPanel>
+          )}
+        </View>
+      </Modal>
+    );
+  }
+
+  function renderConfirmationDialog() {
+    return (
+      <Modal
+        visible={confirmation !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmation(null)}
+      >
+        <View style={styles.modalOverlay}>
+          {confirmation && (
+            <SlidingPanel>
+              <View style={styles.confirmDialog}>
+                <Text style={styles.confirmTitle}>{confirmation.title}</Text>
+                <Text style={styles.confirmMessage}>
+                  {confirmation.message}
+                </Text>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    style={styles.cancelButton}
+                    onPress={() => setConfirmation(null)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.confirmButton}
+                    onPress={() => {
+                      if (confirmation) {
+                        const confirm = confirmation.onConfirm;
+                        setConfirmation(null);
+                        confirm();
+                      }
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.confirmButtonText}>
+                      {confirmation.confirmLabel}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </SlidingPanel>
+          )}
+        </View>
+      </Modal>
+    );
   }
 
   if (storageStatus === "loading") {
@@ -310,6 +552,7 @@ export default function App() {
         >
           <Text style={styles.cancelButtonText}>Reset saved tasks</Text>
         </Pressable>
+        {renderConfirmationDialog()}
         <StatusBar style="dark" />
       </View>
     );
@@ -332,11 +575,103 @@ export default function App() {
           </View>
         </View>
 
+        <View style={styles.calendarCard}>
+          <View style={styles.calendarHeader}>
+            <Pressable
+              style={styles.monthArrow}
+              onPress={() => changeMonth(-1)}
+              accessibilityRole="button"
+              accessibilityLabel="Previous month"
+            >
+              <Text style={styles.monthArrowText}>‹</Text>
+            </Pressable>
+            <Text style={styles.monthTitle}>
+              {displayedMonth.toLocaleDateString("en-US", {
+                month: "long",
+                year: "numeric",
+              })}
+            </Text>
+            <Pressable
+              style={styles.monthArrow}
+              onPress={() => changeMonth(1)}
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+            >
+              <Text style={styles.monthArrowText}>›</Text>
+            </Pressable>
+          </View>
+          <View style={styles.weekdaysRow}>
+            {["M", "T", "W", "T", "F", "S", "S"].map((weekday, index) => (
+              <Text key={`${weekday}-${index}`} style={styles.weekdayLabel}>
+                {weekday}
+              </Text>
+            ))}
+          </View>
+          <View style={styles.calendarGrid}>
+            {monthDays.map((date, index) => {
+              if (!date) {
+                return <View key={`empty-${index}`} style={styles.calendarCell} />;
+              }
+
+              const dateKey = getDateKey(date);
+              const isSelected = dateKey === selectedDate;
+              const isToday = dateKey === todayKey;
+              const taskCount = tasksByDate[dateKey] ?? 0;
+
+              return (
+                <View key={dateKey} style={styles.calendarCell}>
+                  <Pressable
+                    style={[
+                      styles.calendarDay,
+                      isToday && styles.calendarDayToday,
+                      isSelected && styles.calendarDaySelected,
+                    ]}
+                    onPress={() => selectDate(date)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${date.toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                    })}${taskCount ? `, ${taskCount} tasks` : ""}`}
+                    accessibilityState={{ selected: isSelected }}
+                  >
+                    <Text
+                      style={[
+                        styles.calendarDayText,
+                        isSelected && styles.calendarDayTextSelected,
+                      ]}
+                    >
+                      {date.getDate()}
+                    </Text>
+                    {taskCount > 0 && (
+                      <View
+                        style={[
+                          styles.calendarTaskDot,
+                          isSelected && styles.calendarTaskDotSelected,
+                        ]}
+                      />
+                    )}
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+          <View style={styles.calendarFooter}>
+            <Text style={styles.calendarHint}>Tap a day to see its tasks</Text>
+            <Pressable
+              style={styles.todayButton}
+              onPress={() => selectDate(dateFromKey(todayKey))}
+              accessibilityRole="button"
+            >
+              <Text style={styles.todayButtonText}>Today</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <View style={styles.progressCard}>
           <View style={styles.progressHeader}>
             <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
             <Text style={styles.progressCount}>
-              {completedTaskCount} / {tasks.length}
+              {completedTaskCount} / {tasksOnSelectedDate.length}
             </Text>
           </View>
           <View
@@ -344,7 +679,7 @@ export default function App() {
             accessibilityRole="progressbar"
             accessibilityValue={{
               min: 0,
-              max: Math.max(tasks.length, 1),
+              max: Math.max(tasksOnSelectedDate.length, 1),
               now: completedTaskCount,
             }}
           >
@@ -358,9 +693,11 @@ export default function App() {
           <Text style={styles.progressMessage}>{progressMessage}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Today's tasks</Text>
+        <Text style={styles.sectionTitle}>
+          {selectedDate === todayKey ? "Today's tasks" : selectedDateLabel}
+        </Text>
 
-        {tasks.map((task, index) => {
+        {tasksOnSelectedDate.map((task, index) => {
           const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
 
           return (
@@ -403,27 +740,40 @@ export default function App() {
                       ]}
                       numberOfLines={1}
                       onTextLayout={(event) => {
-                        const width = event.nativeEvent.lines[0]?.width;
-                        if (
-                          width !== undefined &&
-                          taskTitleWidths[task.id] !== width
-                        ) {
-                          setTaskTitleWidths((currentWidths) => ({
-                            ...currentWidths,
-                            [task.id]: width,
-                          }));
+                        const line = event.nativeEvent.lines[0];
+                        if (line) {
+                          const layout = {
+                            width: line.width,
+                            strikeTop: Math.max(
+                              0,
+                              line.y + line.ascender - line.capHeight / 2,
+                            ),
+                          };
+                          setTaskTitleLayouts((currentLayouts) => {
+                            const currentLayout = currentLayouts[task.id];
+                            if (
+                              currentLayout?.width === layout.width &&
+                              currentLayout.strikeTop === layout.strikeTop
+                            ) {
+                              return currentLayouts;
+                            }
+                            return { ...currentLayouts, [task.id]: layout };
+                          });
                         }
                       }}
                     >
                       {task.title}
                     </Text>
                     {task.completed &&
-                      taskTitleWidths[task.id] !== undefined && (
+                      taskTitleLayouts[task.id] !== undefined && (
                         <View
                           pointerEvents="none"
                           style={[
                             styles.strikethrough,
-                            { width: taskTitleWidths[task.id] },
+                            {
+                              width: taskTitleLayouts[task.id].width,
+                              top: taskTitleLayouts[task.id].strikeTop,
+                            },
                           ]}
                         />
                       )}
@@ -503,6 +853,13 @@ export default function App() {
                     </Pressable>
                     <Pressable
                       style={styles.actionButton}
+                      onPress={() => openRescheduleDialog(task)}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.editActionText}>Reschedule</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.actionButton}
                       onPress={() => confirmDeleteTask(task.id, task.title)}
                       accessibilityRole="button"
                     >
@@ -514,54 +871,67 @@ export default function App() {
             </View>
           );
         })}
+        {tasksOnSelectedDate.length === 0 && (
+          <Text style={styles.emptyAgenda}>
+            Nothing planned for this day yet.
+          </Text>
+        )}
         {isAddingTask ? (
-          <View style={styles.addTaskForm}>
-            <TextInput
-              style={styles.taskInput}
-              value={newTaskTitle}
-              onChangeText={setNewTaskTitle}
-              placeholder="What needs doing?"
-              placeholderTextColor={theme.colors.placeholder}
-              maxLength={80}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={addTask}
-              accessibilityLabel="New task title"
-            />
-            <View style={styles.formActions}>
-              <Pressable
-                style={styles.cancelButton}
-                onPress={() => {
-                  setNewTaskTitle("");
-                  setIsAddingTask(false);
-                }}
-                accessibilityRole="button"
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.saveButton,
-                  !newTaskTitle.trim() && styles.saveButtonDisabled,
-                ]}
-                onPress={addTask}
-                disabled={!newTaskTitle.trim()}
-                accessibilityRole="button"
-              >
-                <Text style={styles.saveButtonText}>Add task</Text>
-              </Pressable>
+          <SlidingPanel>
+            <View style={styles.addTaskForm}>
+              <TextInput
+                style={styles.taskInput}
+                value={newTaskTitle}
+                onChangeText={setNewTaskTitle}
+                placeholder="What needs doing?"
+                placeholderTextColor={theme.colors.placeholder}
+                maxLength={80}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={addTask}
+                accessibilityLabel="New task title"
+              />
+              <View style={styles.formActions}>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    animatePanelChange();
+                    setNewTaskTitle("");
+                    setIsAddingTask(false);
+                  }}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.saveButton,
+                    !newTaskTitle.trim() && styles.saveButtonDisabled,
+                  ]}
+                  onPress={addTask}
+                  disabled={!newTaskTitle.trim()}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.saveButtonText}>Add task</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
+          </SlidingPanel>
         ) : (
           <Pressable
             style={styles.addTaskButton}
-            onPress={() => setIsAddingTask(true)}
+            onPress={() => {
+              animatePanelChange();
+              setIsAddingTask(true);
+            }}
             accessibilityRole="button"
           >
             <Text style={styles.addTaskButtonText}>+ Add a task</Text>
           </Pressable>
         )}
       </ScrollView>
+      {renderConfirmationDialog()}
+      {renderRescheduleDialog()}
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
     </View>
   );
@@ -609,6 +979,116 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  calendarCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 22,
+    padding: 14,
+  },
+  calendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  monthTitle: {
+    color: colors.text,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 17,
+  },
+  monthArrow: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  monthArrowText: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 28,
+    lineHeight: 32,
+  },
+  weekdaysRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+  },
+  weekdayLabel: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 12,
+    textAlign: "center",
+    width: "14.2857%",
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  calendarCell: {
+    alignItems: "center",
+    paddingVertical: 2,
+    width: "14.2857%",
+  },
+  calendarDay: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: 17,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 32,
+  },
+  calendarDayToday: {
+    borderColor: colors.primary,
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  calendarDayText: {
+    color: colors.text,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 14,
+  },
+  calendarDayTextSelected: {
+    color: colors.primaryText,
+    fontFamily: "Nunito_800ExtraBold",
+  },
+  calendarTaskDot: {
+    backgroundColor: colors.primary,
+    borderRadius: 2,
+    bottom: 3,
+    height: 4,
+    position: "absolute",
+    width: 4,
+  },
+  calendarTaskDotSelected: {
+    backgroundColor: colors.primaryText,
+  },
+  calendarFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  calendarHint: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 12,
+  },
+  todayButton: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  todayButtonText: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 12,
   },
   progressCard: {
     backgroundColor: colors.surface,
@@ -676,6 +1156,13 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     marginTop: 32,
     marginBottom: 14,
   },
+  emptyAgenda: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 15,
+    marginBottom: 12,
+    textAlign: "center",
+  },
   taskItem: {
     marginBottom: 10,
   },
@@ -724,7 +1211,6 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   strikethrough: {
     position: "absolute",
     left: 0,
-    top: "40%",
     height: 1.5,
     backgroundColor: colors.strikethrough,
   },
@@ -828,6 +1314,68 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     backgroundColor: colors.disabled,
   },
   saveButtonText: {
+    color: colors.primaryText,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 15,
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(35, 29, 45, 0.42)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+  confirmDialog: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    maxWidth: 420,
+    padding: 22,
+    width: "100%",
+  },
+  datePickerDialog: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    maxWidth: 420,
+    padding: 16,
+    width: "100%",
+  },
+  datePickerFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 6,
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontFamily: "Nunito_800ExtraBold",
+    fontSize: 21,
+  },
+  confirmMessage: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 8,
+  },
+  confirmActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 18,
+  },
+  confirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: 10,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  confirmButtonText: {
     color: colors.primaryText,
     fontFamily: "Nunito_700Bold",
     fontSize: 15,
