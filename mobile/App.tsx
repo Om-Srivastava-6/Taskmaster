@@ -7,6 +7,9 @@ export default function App() {
     { id: 1, title: "Write down a task", completed: false },
     { id: 2, title: "Take a break", completed: false },
   ]);
+  const [taskTitleWidths, setTaskTitleWidths] = useState<Record<number, number>>(
+    {},
+  );
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -52,14 +55,38 @@ export default function App() {
           >
             {task.completed && <Text style={styles.checkmark}>✓</Text>}
           </View>
-          <Text
-            style={[
-              styles.taskText,
-              task.completed && styles.taskTextCompleted,
-            ]}
-          >
-            {task.title}
-          </Text>
+          <View style={styles.taskTitleContainer}>
+            <Text
+              style={[
+                styles.taskText,
+                task.completed && styles.taskTextCompleted,
+              ]}
+              numberOfLines={1}
+              onTextLayout={(event) => {
+                const width = event.nativeEvent.lines[0]?.width;
+                if (
+                  width !== undefined &&
+                  taskTitleWidths[task.id] !== width
+                ) {
+                  setTaskTitleWidths((currentWidths) => ({
+                    ...currentWidths,
+                    [task.id]: width,
+                  }));
+                }
+              }}
+            >
+              {task.title}
+            </Text>
+            {task.completed && taskTitleWidths[task.id] !== undefined && (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.strikethrough,
+                  { width: taskTitleWidths[task.id] },
+                ]}
+              />
+            )}
+          </View>
         </Pressable>
       ))}
       <StatusBar style="auto" />
@@ -129,7 +156,18 @@ const styles = StyleSheet.create({
   },
   taskTextCompleted: {
     color: "#667085",
-    textDecorationLine: "line-through",
+  },
+  taskTitleContainer: {
+    flex: 1,
+    justifyContent: "center",
+    position: "relative",
+  },
+  strikethrough: {
+    position: "absolute",
+    left: 0,
+    top: "50%",
+    height: 1.5,
+    backgroundColor: "#667085",
   },
   checkmark: {
     color: "#FFFFFF",
