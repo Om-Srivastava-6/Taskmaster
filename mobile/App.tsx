@@ -8,6 +8,8 @@ import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import {
   Animated,
   Easing,
+  Keyboard,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
   Platform,
@@ -18,6 +20,7 @@ import {
   TextInput,
   UIManager,
   View,
+  type ScrollViewInstance,
 } from "react-native";
 import { dateFromKey, getDateKey, getMonthGrid } from "./dateUtils";
 import {
@@ -25,6 +28,7 @@ import {
   resetSavedTasks,
   saveTasks,
   type Task,
+  type TaskPriority,
 } from "./taskStorage";
 import { pastelRainbowTheme, type AppTheme } from "./theme";
 
@@ -98,15 +102,20 @@ export default function App() {
   >({});
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskPriority, setNewTaskPriority] =
+    useState<TaskPriority>("normal");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
+  const [editedTaskPriority, setEditedTaskPriority] =
+    useState<TaskPriority>("normal");
   const [todayKey] = useState(() => getDateKey(new Date()));
   const [activeScreen, setActiveScreen] = useState<"home" | "calendar">(
     "home",
   );
   const screenTransition = useRef(new Animated.Value(1)).current;
   const isScreenTransitioning = useRef(false);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [displayedMonth, setDisplayedMonth] = useState(() => {
     const now = new Date();
@@ -171,6 +180,20 @@ export default function App() {
     });
   }, [storageStatus, tasks]);
 
+  useEffect(() => {
+    if (!isAddingTask) {
+      return;
+    }
+
+    const keyboardSubscription = Keyboard.addListener("keyboardDidShow", () => {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      });
+    });
+
+    return () => keyboardSubscription.remove();
+  }, [isAddingTask]);
+
   const today = dateFromKey(todayKey).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -220,6 +243,67 @@ export default function App() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }
 
+  function getPriorityTone(priority: TaskPriority) {
+    if (priority === "high") {
+      return {
+        backgroundColor: theme.colors.dangerSoft,
+        color: theme.colors.danger,
+      };
+    }
+    if (priority === "normal") {
+      return {
+        backgroundColor: theme.colors.primarySoft,
+        color: theme.colors.primary,
+      };
+    }
+    return {
+      backgroundColor: theme.colors.background,
+      color: theme.colors.mutedText,
+    };
+  }
+
+  function renderPrioritySelector(
+    value: TaskPriority,
+    onChange: (priority: TaskPriority) => void,
+  ) {
+    const priorities: TaskPriority[] = ["high", "normal", "low"];
+
+    return (
+      <View style={styles.prioritySelector}>
+        <Text style={styles.prioritySelectorLabel}>Priority</Text>
+        <View style={styles.priorityOptions}>
+          {priorities.map((priority) => {
+            const tone = getPriorityTone(priority);
+            const selected = priority === value;
+
+            return (
+              <Pressable
+                key={priority}
+                style={[
+                  styles.priorityOption,
+                  { borderColor: tone.color },
+                  selected && { backgroundColor: tone.color },
+                ]}
+                onPress={() => onChange(priority)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.priorityOptionText,
+                    { color: selected ? theme.colors.primaryText : tone.color },
+                  ]}
+                >
+                  {priority.charAt(0).toUpperCase() + priority.slice(1)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    );
+  }
+
   function toggleScreen() {
     if (isScreenTransitioning.current) {
       return;
@@ -228,9 +312,11 @@ export default function App() {
     isScreenTransitioning.current = true;
     setIsAddingTask(false);
     setNewTaskTitle("");
+    setNewTaskPriority("normal");
     setSelectedTaskId(null);
     setEditingTaskId(null);
     setEditedTaskTitle("");
+    setEditedTaskPriority("normal");
 
     Animated.timing(screenTransition, {
       toValue: 0,
@@ -277,10 +363,17 @@ export default function App() {
     animatePanelChange();
     setTasks((currentTasks) => [
       ...currentTasks,
-      { id: nextTaskId, title, completed: false, dueDate: activeDate },
+      {
+        id: nextTaskId,
+        title,
+        completed: false,
+        dueDate: activeDate,
+        priority: newTaskPriority,
+      },
     ]);
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
+    setNewTaskPriority("normal");
     setIsAddingTask(false);
   }
 
@@ -320,7 +413,11 @@ export default function App() {
 
     animatePanelChange();
     setTasks((currentTasks) =>
-      currentTasks.map((task) => (task.id === id ? { ...task, title } : task)),
+      currentTasks.map((task) =>
+        task.id === id
+          ? { ...task, title, priority: editedTaskPriority }
+          : task,
+      ),
     );
     setTaskTitleLayouts((currentLayouts) => {
       const remainingLayouts = { ...currentLayouts };
@@ -328,6 +425,7 @@ export default function App() {
       return remainingLayouts;
     });
     setEditedTaskTitle("");
+    setEditedTaskPriority("normal");
     setEditingTaskId(null);
   }
 
@@ -603,7 +701,10 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <Animated.View
         style={[
           styles.screenTransition,
@@ -622,8 +723,10 @@ export default function App() {
       >
         <ScrollView
           key={activeScreen}
+          ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
           <View style={styles.header}>
             <View>
@@ -789,6 +892,7 @@ export default function App() {
 
           {visibleTasks.map((task, index) => {
             const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
+            const priorityTone = getPriorityTone(task.priority);
 
             return (
               <View key={task.id} style={styles.taskItem}>
@@ -806,7 +910,7 @@ export default function App() {
                     style={styles.taskToggle}
                     onPress={() => toggleTask(task.id)}
                     accessibilityRole="checkbox"
-                    accessibilityLabel={task.title}
+                    accessibilityLabel={`${task.title}, ${task.priority} priority`}
                     accessibilityState={{ checked: task.completed }}
                   >
                     <View
@@ -868,6 +972,22 @@ export default function App() {
                           />
                         )}
                     </View>
+                    <View
+                      style={[
+                        styles.priorityBadge,
+                        { backgroundColor: priorityTone.backgroundColor },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.priorityBadgeText,
+                          { color: priorityTone.color },
+                        ]}
+                      >
+                        {task.priority.charAt(0).toUpperCase() +
+                          task.priority.slice(1)}
+                      </Text>
+                    </View>
                   </Pressable>
                   <Pressable
                     style={styles.moreButton}
@@ -886,7 +1006,12 @@ export default function App() {
 
                 {editingTaskId === task.id ? (
                   <SlidingPanel>
-                    <View style={styles.taskActionPanel}>
+                    <View
+                      style={[
+                        styles.taskActionPanel,
+                        styles.editTaskActionPanel,
+                      ]}
+                    >
                       <TextInput
                         style={styles.taskInput}
                         value={editedTaskTitle}
@@ -895,16 +1020,26 @@ export default function App() {
                         placeholderTextColor={theme.colors.placeholder}
                         maxLength={80}
                         autoFocus
+                        onFocus={() =>
+                          requestAnimationFrame(() => {
+                            scrollRef.current?.scrollToEnd({ animated: true });
+                          })
+                        }
                         returnKeyType="done"
                         onSubmitEditing={() => saveEditedTask(task.id)}
                         accessibilityLabel="Edit task title"
                       />
+                      {renderPrioritySelector(
+                        editedTaskPriority,
+                        setEditedTaskPriority,
+                      )}
                       <View style={styles.formActions}>
                         <Pressable
                           style={styles.cancelButton}
                           onPress={() => {
                             animatePanelChange();
                             setEditedTaskTitle("");
+                            setEditedTaskPriority("normal");
                             setEditingTaskId(null);
                           }}
                           accessibilityRole="button"
@@ -915,7 +1050,7 @@ export default function App() {
                           style={[
                             styles.saveButton,
                             !editedTaskTitle.trim() &&
-                            styles.saveButtonDisabled,
+                              styles.saveButtonDisabled,
                           ]}
                           onPress={() => saveEditedTask(task.id)}
                           disabled={!editedTaskTitle.trim()}
@@ -934,6 +1069,7 @@ export default function App() {
                         onPress={() => {
                           animatePanelChange();
                           setEditedTaskTitle(task.title);
+                          setEditedTaskPriority(task.priority);
                           setEditingTaskId(task.id);
                           setSelectedTaskId(null);
                         }}
@@ -977,16 +1113,26 @@ export default function App() {
                   placeholderTextColor={theme.colors.placeholder}
                   maxLength={80}
                   autoFocus
+                  onFocus={() =>
+                    requestAnimationFrame(() => {
+                      scrollRef.current?.scrollToEnd({ animated: true });
+                    })
+                  }
                   returnKeyType="done"
                   onSubmitEditing={addTask}
                   accessibilityLabel="New task title"
                 />
+                {renderPrioritySelector(
+                  newTaskPriority,
+                  setNewTaskPriority,
+                )}
                 <View style={styles.formActions}>
                   <Pressable
                     style={styles.cancelButton}
                     onPress={() => {
                       animatePanelChange();
                       setNewTaskTitle("");
+                      setNewTaskPriority("normal");
                       setIsAddingTask(false);
                     }}
                     accessibilityRole="button"
@@ -1024,7 +1170,7 @@ export default function App() {
       {renderConfirmationDialog()}
       {renderRescheduleDialog()}
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1039,7 +1185,7 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   content: {
     paddingHorizontal: 24,
     paddingTop: 80,
-    paddingBottom: 24,
+    paddingBottom: 56,
   },
   storageScreen: {
     justifyContent: "center",
@@ -1316,6 +1462,17 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+  priorityBadge: {
+    alignSelf: "center",
+    borderRadius: 10,
+    marginLeft: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  priorityBadgeText: {
+    fontFamily: "Nunito_700Bold",
+    fontSize: 10,
+  },
   strikethrough: {
     position: "absolute",
     left: 0,
@@ -1351,6 +1508,36 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     borderWidth: 1,
     marginTop: 6,
     padding: 6,
+  },
+  editTaskActionPanel: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
+  prioritySelector: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  prioritySelectorLabel: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 13,
+  },
+  priorityOptions: {
+    flexDirection: "row",
+  },
+  priorityOption: {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginLeft: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  priorityOptionText: {
+    fontFamily: "Nunito_700Bold",
+    fontSize: 12,
+    textTransform: "capitalize",
   },
   actionButton: {
     borderRadius: 8,

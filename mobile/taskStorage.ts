@@ -6,16 +6,34 @@ export type Task = {
   title: string;
   completed: boolean;
   dueDate: string;
+  priority: TaskPriority;
 };
 
-type StoredTask = Omit<Task, "dueDate"> & { dueDate?: string };
+export type TaskPriority = "low" | "normal" | "high";
+
+type StoredTask = Omit<Task, "dueDate" | "priority"> & {
+  dueDate?: string;
+  priority?: TaskPriority;
+};
 
 const STORAGE_KEY = "@taskmaster/tasks/v1";
 const today = getDateKey(new Date());
 
 export const initialTasks: Task[] = [
-  { id: 1, title: "Write down a task", completed: false, dueDate: today },
-  { id: 2, title: "Take a break", completed: false, dueDate: today },
+  {
+    id: 1,
+    title: "Write down a task",
+    completed: false,
+    dueDate: today,
+    priority: "normal",
+  },
+  {
+    id: 2,
+    title: "Take a break",
+    completed: false,
+    dueDate: today,
+    priority: "normal",
+  },
 ];
 
 export async function loadTasks(): Promise<Task[]> {
@@ -41,6 +59,7 @@ export async function loadTasks(): Promise<Task[]> {
   return tasks.map((task) => ({
     ...task,
     dueDate: task.dueDate ?? today,
+    priority: task.priority ?? "normal",
   }));
 }
 
@@ -64,6 +83,11 @@ function isStoredTask(value: unknown): value is StoredTask {
     value.title.trim().length > 0 &&
     "completed" in value &&
     typeof value.completed === "boolean" &&
-    (!("dueDate" in value) || isDateKey(value.dueDate))
+    (!("dueDate" in value) || isDateKey(value.dueDate)) &&
+    (!("priority" in value) || isTaskPriority(value.priority))
   );
+}
+
+function isTaskPriority(value: unknown): value is TaskPriority {
+  return value === "low" || value === "normal" || value === "high";
 }
