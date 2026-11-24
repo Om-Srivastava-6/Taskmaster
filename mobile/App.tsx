@@ -166,8 +166,12 @@ export default function App() {
     tasks.length === 0
       ? "Add a task to get started."
       : completedTaskCount === tasks.length
-        ? "All done! You did it."
-        : "A little progress adds up.";
+        ? "All done! You did it. Go celebrate!"
+        : completedTaskCount === 0
+          ? "Let's get one small win on the board."
+          : completedTaskCount === 1
+            ? "One down! You're off to a lovely start."
+            : `${completedTaskCount} down - you're on a roll!`;
 
   function animatePanelChange() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -720,7 +724,7 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   strikethrough: {
     position: "absolute",
     left: 0,
-    top: "50%",
+    top: "40%",
     height: 1.5,
     backgroundColor: colors.strikethrough,
   },
