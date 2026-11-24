@@ -159,6 +159,15 @@ export default function App() {
 
   const theme = pastelRainbowTheme;
   const styles = createStyles(theme.colors);
+  const completedTaskCount = tasks.filter((task) => task.completed).length;
+  const progressPercent =
+    tasks.length === 0 ? 0 : (completedTaskCount / tasks.length) * 100;
+  const progressMessage =
+    tasks.length === 0
+      ? "Add a task to get started."
+      : completedTaskCount === tasks.length
+        ? "All done! You did it."
+        : "A little progress adds up.";
 
   function animatePanelChange() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -317,6 +326,32 @@ export default function App() {
               <Text style={styles.storageWarning}>{storageError}</Text>
             )}
           </View>
+        </View>
+
+        <View style={styles.progressCard}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
+            <Text style={styles.progressCount}>
+              {completedTaskCount} / {tasks.length}
+            </Text>
+          </View>
+          <View
+            style={styles.progressTrack}
+            accessibilityRole="progressbar"
+            accessibilityValue={{
+              min: 0,
+              max: Math.max(tasks.length, 1),
+              now: completedTaskCount,
+            }}
+          >
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${progressPercent}%` },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressMessage}>{progressMessage}</Text>
         </View>
 
         <Text style={styles.sectionTitle}>Today's tasks</Text>
@@ -570,6 +605,48 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  progressCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 24,
+    padding: 16,
+  },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  progressLabel: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
+  progressCount: {
+    color: colors.primary,
+    fontFamily: "Nunito_800ExtraBold",
+    fontSize: 24,
+  },
+  progressTrack: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 5,
+    height: 10,
+    overflow: "hidden",
+    marginTop: 10,
+  },
+  progressFill: {
+    backgroundColor: colors.primary,
+    borderRadius: 5,
+    height: "100%",
+  },
+  progressMessage: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 14,
+    marginTop: 8,
   },
   title: {
     color: colors.text,
