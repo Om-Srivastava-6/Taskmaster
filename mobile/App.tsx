@@ -19,6 +19,7 @@ import {
   UIManager,
   View,
 } from "react-native";
+import { pastelRainbowTheme, type AppTheme } from "./theme";
 
 if (
   Platform.OS === "android" &&
@@ -88,6 +89,9 @@ export default function App() {
   if (!fontsLoaded) {
     return null;
   }
+
+  const theme = pastelRainbowTheme;
+  const styles = createStyles(theme.colors);
 
   function animatePanelChange() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -180,145 +184,160 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Today's tasks</Text>
 
-        {tasks.map((task) => (
-          <View key={task.id} style={styles.taskItem}>
-            <View
-              style={[
-                styles.taskCard,
-                task.completed && styles.taskCardCompleted,
-              ]}
-            >
-              <Pressable
-                style={styles.taskToggle}
-                onPress={() => toggleTask(task.id)}
-                accessibilityRole="checkbox"
-                accessibilityLabel={task.title}
-                accessibilityState={{ checked: task.completed }}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    task.completed && styles.checkboxCompleted,
-                  ]}
-                >
-                  {task.completed && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <View style={styles.taskTitleContainer}>
-                  <Text
-                    style={[
-                      styles.taskText,
-                      task.completed && styles.taskTextCompleted,
-                    ]}
-                    numberOfLines={1}
-                    onTextLayout={(event) => {
-                      const width = event.nativeEvent.lines[0]?.width;
-                      if (
-                        width !== undefined &&
-                        taskTitleWidths[task.id] !== width
-                      ) {
-                        setTaskTitleWidths((currentWidths) => ({
-                          ...currentWidths,
-                          [task.id]: width,
-                        }));
-                      }
-                    }}
-                  >
-                    {task.title}
-                  </Text>
-                  {task.completed && taskTitleWidths[task.id] !== undefined && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.strikethrough,
-                        { width: taskTitleWidths[task.id] },
-                      ]}
-                    />
-                  )}
-                </View>
-              </Pressable>
-              <Pressable
-                style={styles.moreButton}
-                onPress={() => {
-                  animatePanelChange();
-                  setSelectedTaskId((currentId) =>
-                    currentId === task.id ? null : task.id,
-                  );
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`More options for ${task.title}`}
-              >
-                <Text style={styles.moreButtonText}>...</Text>
-              </Pressable>
-            </View>
+        {tasks.map((task, index) => {
+          const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
 
-            {editingTaskId === task.id ? (
-              <SlidingPanel>
-                <View style={styles.taskActionPanel}>
-                  <TextInput
-                    style={styles.taskInput}
-                    value={editedTaskTitle}
-                    onChangeText={setEditedTaskTitle}
-                    placeholder="Task title"
-                    placeholderTextColor="#A093A7"
-                    maxLength={80}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => saveEditedTask(task.id)}
-                    accessibilityLabel="Edit task title"
-                  />
-                  <View style={styles.formActions}>
+          return (
+            <View key={task.id} style={styles.taskItem}>
+              <View
+                style={[
+                  styles.taskCard,
+                  {
+                    backgroundColor: taskAccent.surface,
+                    borderColor: taskAccent.border,
+                  },
+                  task.completed && styles.taskCardCompleted,
+                ]}
+              >
+                <Pressable
+                  style={styles.taskToggle}
+                  onPress={() => toggleTask(task.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={task.title}
+                  accessibilityState={{ checked: task.completed }}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      { borderColor: taskAccent.accent },
+                      task.completed && {
+                        backgroundColor: taskAccent.accent,
+                      },
+                    ]}
+                  >
+                    {task.completed && (
+                      <Text style={styles.checkmark}>✓</Text>
+                    )}
+                  </View>
+                  <View style={styles.taskTitleContainer}>
+                    <Text
+                      style={[
+                        styles.taskText,
+                        task.completed && styles.taskTextCompleted,
+                      ]}
+                      numberOfLines={1}
+                      onTextLayout={(event) => {
+                        const width = event.nativeEvent.lines[0]?.width;
+                        if (
+                          width !== undefined &&
+                          taskTitleWidths[task.id] !== width
+                        ) {
+                          setTaskTitleWidths((currentWidths) => ({
+                            ...currentWidths,
+                            [task.id]: width,
+                          }));
+                        }
+                      }}
+                    >
+                      {task.title}
+                    </Text>
+                    {task.completed &&
+                      taskTitleWidths[task.id] !== undefined && (
+                        <View
+                          pointerEvents="none"
+                          style={[
+                            styles.strikethrough,
+                            { width: taskTitleWidths[task.id] },
+                          ]}
+                        />
+                      )}
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={styles.moreButton}
+                  onPress={() => {
+                    animatePanelChange();
+                    setSelectedTaskId((currentId) =>
+                      currentId === task.id ? null : task.id,
+                    );
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`More options for ${task.title}`}
+                >
+                  <Text style={styles.moreButtonText}>...</Text>
+                </Pressable>
+              </View>
+
+              {editingTaskId === task.id ? (
+                <SlidingPanel>
+                  <View style={styles.taskActionPanel}>
+                    <TextInput
+                      style={styles.taskInput}
+                      value={editedTaskTitle}
+                      onChangeText={setEditedTaskTitle}
+                      placeholder="Task title"
+                      placeholderTextColor={theme.colors.placeholder}
+                      maxLength={80}
+                      autoFocus
+                      returnKeyType="done"
+                      onSubmitEditing={() => saveEditedTask(task.id)}
+                      accessibilityLabel="Edit task title"
+                    />
+                    <View style={styles.formActions}>
+                      <Pressable
+                        style={styles.cancelButton}
+                        onPress={() => {
+                          animatePanelChange();
+                          setEditedTaskTitle("");
+                          setEditingTaskId(null);
+                        }}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[
+                          styles.saveButton,
+                          !editedTaskTitle.trim() &&
+                            styles.saveButtonDisabled,
+                        ]}
+                        onPress={() => saveEditedTask(task.id)}
+                        disabled={!editedTaskTitle.trim()}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.saveButtonText}>Save</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </SlidingPanel>
+              ) : selectedTaskId === task.id ? (
+                <SlidingPanel>
+                  <View style={styles.taskActionPanel}>
                     <Pressable
-                      style={styles.cancelButton}
+                      style={styles.actionButton}
                       onPress={() => {
                         animatePanelChange();
-                        setEditedTaskTitle("");
-                        setEditingTaskId(null);
+                        setEditedTaskTitle(task.title);
+                        setEditingTaskId(task.id);
+                        setSelectedTaskId(null);
                       }}
                       accessibilityRole="button"
                     >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                      <Text style={styles.editActionText}>Edit</Text>
                     </Pressable>
                     <Pressable
-                      style={[
-                        styles.saveButton,
-                        !editedTaskTitle.trim() && styles.saveButtonDisabled,
-                      ]}
-                      onPress={() => saveEditedTask(task.id)}
-                      disabled={!editedTaskTitle.trim()}
+                      style={styles.actionButton}
+                      onPress={() => confirmDeleteTask(task.id, task.title)}
                       accessibilityRole="button"
                     >
-                      <Text style={styles.saveButtonText}>Save</Text>
+                      <Text style={styles.deleteActionText}>Delete</Text>
                     </Pressable>
                   </View>
-                </View>
-              </SlidingPanel>
-            ) : selectedTaskId === task.id ? (
-              <SlidingPanel>
-                <View style={styles.taskActionPanel}>
-                  <Pressable
-                    style={styles.actionButton}
-                    onPress={() => {
-                      animatePanelChange();
-                      setEditedTaskTitle(task.title);
-                      setEditingTaskId(task.id);
-                      setSelectedTaskId(null);
-                    }}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.editActionText}>Edit</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.actionButton}
-                    onPress={() => confirmDeleteTask(task.id, task.title)}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.deleteActionText}>Delete</Text>
-                  </Pressable>
-                </View>
-              </SlidingPanel>
-            ) : null}
-          </View>
-        ))}
+                </SlidingPanel>
+              ) : null}
+            </View>
+          );
+        })}
         {isAddingTask ? (
           <View style={styles.addTaskForm}>
             <TextInput
@@ -326,7 +345,7 @@ export default function App() {
               value={newTaskTitle}
               onChangeText={setNewTaskTitle}
               placeholder="What needs doing?"
-              placeholderTextColor="#A093A7"
+              placeholderTextColor={theme.colors.placeholder}
               maxLength={80}
               autoFocus
               returnKeyType="done"
@@ -367,15 +386,15 @@ export default function App() {
           </Pressable>
         )}
       </ScrollView>
-      <StatusBar style="auto" />
+      <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFF9F3",
+    backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: 24,
@@ -388,24 +407,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    color: "#352449",
+    color: colors.text,
     fontFamily: "Nunito_800ExtraBold",
     fontSize: 30,
   },
   date: {
-    color: "#85768F",
+    color: colors.mutedText,
     fontFamily: "Nunito_400Regular",
     fontSize: 14,
     marginTop: 4,
   },
   tagline: {
-    color: "#A05D68",
+    color: colors.danger,
     fontFamily: "Nunito_600SemiBold",
     fontSize: 14,
     marginTop: 3,
   },
   sectionTitle: {
-    color: "#352449",
+    color: colors.text,
     fontFamily: "Nunito_700Bold",
     fontSize: 20,
     marginTop: 32,
@@ -417,16 +436,16 @@ const styles = StyleSheet.create({
   taskCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     padding: 18,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#EFE5F2",
+    borderColor: colors.border,
     paddingRight: 10,
   },
   taskCardCompleted: {
-    borderColor: "#D8C5FF",
-    backgroundColor: "#FBF7FF",
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   taskToggle: {
     flex: 1,
@@ -438,21 +457,18 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: "#8B5CF6",
+    borderColor: colors.primary,
     marginRight: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxCompleted: {
-    backgroundColor: "#8B5CF6",
-  },
   taskText: {
-    color: "#40364A",
+    color: colors.text,
     fontFamily: "Nunito_600SemiBold",
     fontSize: 16,
   },
   taskTextCompleted: {
-    color: "#7C6A84",
+    color: colors.mutedText,
   },
   taskTitleContainer: {
     flex: 1,
@@ -464,17 +480,17 @@ const styles = StyleSheet.create({
     left: 0,
     top: "50%",
     height: 1.5,
-    backgroundColor: "#7C6A84",
+    backgroundColor: colors.strikethrough,
   },
   checkmark: {
-    color: "#FFFFFF",
+    color: colors.text,
     fontFamily: "Nunito_800ExtraBold",
     fontSize: 14,
     lineHeight: 18,
   },
   moreButton: {
     alignItems: "center",
-    backgroundColor: "#F3ECFF",
+    backgroundColor: colors.primarySoft,
     borderRadius: 18,
     height: 36,
     justifyContent: "center",
@@ -482,15 +498,15 @@ const styles = StyleSheet.create({
     width: 36,
   },
   moreButtonText: {
-    color: "#7250AC",
+    color: colors.primary,
     fontFamily: "Nunito_700Bold",
     fontSize: 18,
   },
   taskActionPanel: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#EFE5F2",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,
     marginTop: 6,
@@ -502,37 +518,37 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   editActionText: {
-    color: "#7C3AED",
+    color: colors.primary,
     fontFamily: "Nunito_700Bold",
     fontSize: 15,
   },
   deleteActionText: {
-    color: "#E35D6A",
+    color: colors.danger,
     fontFamily: "Nunito_700Bold",
     fontSize: 15,
   },
   addTaskButton: {
     alignItems: "center",
-    backgroundColor: "#8B5CF6",
+    backgroundColor: colors.primary,
     borderRadius: 18,
     marginTop: 8,
     padding: 16,
   },
   addTaskButtonText: {
-    color: "#FFFFFF",
+    color: colors.primaryText,
     fontFamily: "Nunito_700Bold",
     fontSize: 16,
   },
   addTaskForm: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#EFE5F2",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     marginTop: 8,
     padding: 14,
   },
   taskInput: {
-    color: "#352449",
+    color: colors.text,
     fontFamily: "Nunito_400Regular",
     fontSize: 16,
     paddingVertical: 10,
@@ -550,23 +566,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   cancelButtonText: {
-    color: "#85768F",
+    color: colors.mutedText,
     fontFamily: "Nunito_600SemiBold",
     fontSize: 15,
   },
   saveButton: {
     alignItems: "center",
-    backgroundColor: "#8B5CF6",
+    backgroundColor: colors.primary,
     borderRadius: 10,
     justifyContent: "center",
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   saveButtonDisabled: {
-    backgroundColor: "#C8BDD2",
+    backgroundColor: colors.disabled,
   },
   saveButtonText: {
-    color: "#FFFFFF",
+    color: colors.primaryText,
     fontFamily: "Nunito_700Bold",
     fontSize: 15,
   },
