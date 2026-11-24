@@ -102,6 +102,11 @@ export default function App() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
   const [todayKey] = useState(() => getDateKey(new Date()));
+  const [activeScreen, setActiveScreen] = useState<"home" | "calendar">(
+    "home",
+  );
+  const screenTransition = useRef(new Animated.Value(1)).current;
+  const isScreenTransitioning = useRef(false);
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [displayedMonth, setDisplayedMonth] = useState(() => {
     const now = new Date();
@@ -178,20 +183,19 @@ export default function App() {
 
   const theme = pastelRainbowTheme;
   const styles = createStyles(theme.colors);
-  const tasksOnSelectedDate = tasks.filter(
-    (task) => task.dueDate === selectedDate,
-  );
-  const completedTaskCount = tasksOnSelectedDate.filter(
+  const activeDate = activeScreen === "home" ? todayKey : selectedDate;
+  const visibleTasks = tasks.filter((task) => task.dueDate === activeDate);
+  const completedTaskCount = visibleTasks.filter(
     (task) => task.completed,
   ).length;
   const progressPercent =
-    tasksOnSelectedDate.length === 0
+    visibleTasks.length === 0
       ? 0
-      : (completedTaskCount / tasksOnSelectedDate.length) * 100;
+      : (completedTaskCount / visibleTasks.length) * 100;
   const progressMessage =
-    tasksOnSelectedDate.length === 0
+    visibleTasks.length === 0
       ? "Add a task to get started."
-      : completedTaskCount === tasksOnSelectedDate.length
+      : completedTaskCount === visibleTasks.length
         ? "All done! You did it. Go celebrate!"
         : completedTaskCount === 0
           ? "Let's get one small win on the board."
@@ -216,6 +220,45 @@ export default function App() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }
 
+  function toggleScreen() {
+    if (isScreenTransitioning.current) {
+      return;
+    }
+
+    isScreenTransitioning.current = true;
+    setIsAddingTask(false);
+    setNewTaskTitle("");
+    setSelectedTaskId(null);
+    setEditingTaskId(null);
+    setEditedTaskTitle("");
+
+    Animated.timing(screenTransition, {
+      toValue: 0,
+      duration: 150,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        isScreenTransitioning.current = false;
+        return;
+      }
+
+      setActiveScreen((currentScreen) =>
+        currentScreen === "home" ? "calendar" : "home",
+      );
+      requestAnimationFrame(() => {
+        Animated.timing(screenTransition, {
+          toValue: 1,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => {
+          isScreenTransitioning.current = false;
+        });
+      });
+    });
+  }
+
   function toggleTask(id: number) {
     animatePanelChange();
     setTasks((currentTasks) =>
@@ -234,7 +277,7 @@ export default function App() {
     animatePanelChange();
     setTasks((currentTasks) => [
       ...currentTasks,
-      { id: nextTaskId, title, completed: false, dueDate: selectedDate },
+      { id: nextTaskId, title, completed: false, dueDate: activeDate },
     ]);
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
@@ -362,6 +405,7 @@ export default function App() {
     );
     setSelectedDate(dateKey);
     setDisplayedMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+    setActiveScreen("calendar");
     setSelectedTaskId(null);
     setReschedulingTaskId(null);
   }
@@ -560,376 +604,423 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
+      <Animated.View
+        style={[
+          styles.screenTransition,
+          {
+            opacity: screenTransition,
+            transform: [
+              {
+                translateY: screenTransition.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>My Tasks</Text>
-            <Text style={styles.date}>{today}</Text>
-            <Text style={styles.tagline}>Little steps add up.</Text>
-            {storageError && (
-              <Text style={styles.storageWarning}>{storageError}</Text>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.calendarCard}>
-          <View style={styles.calendarHeader}>
-            <Pressable
-              style={styles.monthArrow}
-              onPress={() => changeMonth(-1)}
-              accessibilityRole="button"
-              accessibilityLabel="Previous month"
-            >
-              <Text style={styles.monthArrowText}>‹</Text>
-            </Pressable>
-            <Text style={styles.monthTitle}>
-              {displayedMonth.toLocaleDateString("en-US", {
-                month: "long",
-                year: "numeric",
-              })}
-            </Text>
-            <Pressable
-              style={styles.monthArrow}
-              onPress={() => changeMonth(1)}
-              accessibilityRole="button"
-              accessibilityLabel="Next month"
-            >
-              <Text style={styles.monthArrowText}>›</Text>
-            </Pressable>
-          </View>
-          <View style={styles.weekdaysRow}>
-            {["M", "T", "W", "T", "F", "S", "S"].map((weekday, index) => (
-              <Text key={`${weekday}-${index}`} style={styles.weekdayLabel}>
-                {weekday}
+        <ScrollView
+          key={activeScreen}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.title}>
+                {activeScreen === "home" ? "My Tasks" : "Calendar"}
               </Text>
-            ))}
-          </View>
-          <View style={styles.calendarGrid}>
-            {monthDays.map((date, index) => {
-              if (!date) {
-                return <View key={`empty-${index}`} style={styles.calendarCell} />;
-              }
-
-              const dateKey = getDateKey(date);
-              const isSelected = dateKey === selectedDate;
-              const isToday = dateKey === todayKey;
-              const taskCount = tasksByDate[dateKey] ?? 0;
-
-              return (
-                <View key={dateKey} style={styles.calendarCell}>
-                  <Pressable
-                    style={[
-                      styles.calendarDay,
-                      isToday && styles.calendarDayToday,
-                      isSelected && styles.calendarDaySelected,
-                    ]}
-                    onPress={() => selectDate(date)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${date.toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                    })}${taskCount ? `, ${taskCount} tasks` : ""}`}
-                    accessibilityState={{ selected: isSelected }}
-                  >
-                    <Text
-                      style={[
-                        styles.calendarDayText,
-                        isSelected && styles.calendarDayTextSelected,
-                      ]}
-                    >
-                      {date.getDate()}
-                    </Text>
-                    {taskCount > 0 && (
-                      <View
-                        style={[
-                          styles.calendarTaskDot,
-                          isSelected && styles.calendarTaskDotSelected,
-                        ]}
-                      />
-                    )}
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
-          <View style={styles.calendarFooter}>
-            <Text style={styles.calendarHint}>Tap a day to see its tasks</Text>
+              <Text style={styles.date}>
+                {activeScreen === "home" ? today : "Plan your days"}
+              </Text>
+              <Text style={styles.tagline}>Little steps add up.</Text>
+              {storageError && (
+                <Text style={styles.storageWarning}>{storageError}</Text>
+              )}
+            </View>
             <Pressable
-              style={styles.todayButton}
-              onPress={() => selectDate(dateFromKey(todayKey))}
+              style={styles.headerActionButton}
+              onPress={toggleScreen}
               accessibilityRole="button"
+              accessibilityLabel={
+                activeScreen === "home"
+                  ? "Open calendar"
+                  : "Return to my tasks"
+              }
             >
-              <Text style={styles.todayButtonText}>Today</Text>
+              <Text style={styles.headerActionText}>
+                {activeScreen === "home" ? "Calendar" : "My tasks"}
+              </Text>
             </Pressable>
           </View>
-        </View>
 
-        <View style={styles.progressCard}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
-            <Text style={styles.progressCount}>
-              {completedTaskCount} / {tasksOnSelectedDate.length}
-            </Text>
-          </View>
-          <View
-            style={styles.progressTrack}
-            accessibilityRole="progressbar"
-            accessibilityValue={{
-              min: 0,
-              max: Math.max(tasksOnSelectedDate.length, 1),
-              now: completedTaskCount,
-            }}
-          >
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${progressPercent}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressMessage}>{progressMessage}</Text>
-        </View>
-
-        <Text style={styles.sectionTitle}>
-          {selectedDate === todayKey ? "Today's tasks" : selectedDateLabel}
-        </Text>
-
-        {tasksOnSelectedDate.map((task, index) => {
-          const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
-
-          return (
-            <View key={task.id} style={styles.taskItem}>
-              <View
-                style={[
-                  styles.taskCard,
-                  {
-                    backgroundColor: taskAccent.surface,
-                    borderColor: taskAccent.border,
-                  },
-                  task.completed && styles.taskCardCompleted,
-                ]}
-              >
+          {activeScreen === "calendar" && (
+            <View style={styles.calendarCard}>
+              <View style={styles.calendarHeader}>
                 <Pressable
-                  style={styles.taskToggle}
-                  onPress={() => toggleTask(task.id)}
-                  accessibilityRole="checkbox"
-                  accessibilityLabel={task.title}
-                  accessibilityState={{ checked: task.completed }}
-                >
-                  <View
-                    style={[
-                      styles.checkbox,
-                      { borderColor: taskAccent.accent },
-                      task.completed && {
-                        backgroundColor: taskAccent.accent,
-                      },
-                    ]}
-                  >
-                    {task.completed && (
-                      <Text style={styles.checkmark}>✓</Text>
-                    )}
-                  </View>
-                  <View style={styles.taskTitleContainer}>
-                    <Text
-                      style={[
-                        styles.taskText,
-                        task.completed && styles.taskTextCompleted,
-                      ]}
-                      numberOfLines={1}
-                      onTextLayout={(event) => {
-                        const line = event.nativeEvent.lines[0];
-                        if (line) {
-                          const layout = {
-                            width: line.width,
-                            strikeTop: Math.max(
-                              0,
-                              line.y + line.ascender - line.capHeight / 2,
-                            ),
-                          };
-                          setTaskTitleLayouts((currentLayouts) => {
-                            const currentLayout = currentLayouts[task.id];
-                            if (
-                              currentLayout?.width === layout.width &&
-                              currentLayout.strikeTop === layout.strikeTop
-                            ) {
-                              return currentLayouts;
-                            }
-                            return { ...currentLayouts, [task.id]: layout };
-                          });
-                        }
-                      }}
-                    >
-                      {task.title}
-                    </Text>
-                    {task.completed &&
-                      taskTitleLayouts[task.id] !== undefined && (
-                        <View
-                          pointerEvents="none"
-                          style={[
-                            styles.strikethrough,
-                            {
-                              width: taskTitleLayouts[task.id].width,
-                              top: taskTitleLayouts[task.id].strikeTop,
-                            },
-                          ]}
-                        />
-                      )}
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={styles.moreButton}
-                  onPress={() => {
-                    animatePanelChange();
-                    setSelectedTaskId((currentId) =>
-                      currentId === task.id ? null : task.id,
-                    );
-                  }}
+                  style={styles.monthArrow}
+                  onPress={() => changeMonth(-1)}
                   accessibilityRole="button"
-                  accessibilityLabel={`More options for ${task.title}`}
+                  accessibilityLabel="Previous month"
                 >
-                  <Text style={styles.moreButtonText}>...</Text>
+                  <Text style={styles.monthArrowText}>‹</Text>
+                </Pressable>
+                <Text style={styles.monthTitle}>
+                  {displayedMonth.toLocaleDateString("en-US", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </Text>
+                <Pressable
+                  style={styles.monthArrow}
+                  onPress={() => changeMonth(1)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next month"
+                >
+                  <Text style={styles.monthArrowText}>›</Text>
                 </Pressable>
               </View>
+              <View style={styles.weekdaysRow}>
+                {["M", "T", "W", "T", "F", "S", "S"].map((weekday, index) => (
+                  <Text key={`${weekday}-${index}`} style={styles.weekdayLabel}>
+                    {weekday}
+                  </Text>
+                ))}
+              </View>
+              <View style={styles.calendarGrid}>
+                {monthDays.map((date, index) => {
+                  if (!date) {
+                    return (
+                      <View
+                        key={`empty-${index}`}
+                        style={styles.calendarCell}
+                      />
+                    );
+                  }
 
-              {editingTaskId === task.id ? (
-                <SlidingPanel>
-                  <View style={styles.taskActionPanel}>
-                    <TextInput
-                      style={styles.taskInput}
-                      value={editedTaskTitle}
-                      onChangeText={setEditedTaskTitle}
-                      placeholder="Task title"
-                      placeholderTextColor={theme.colors.placeholder}
-                      maxLength={80}
-                      autoFocus
-                      returnKeyType="done"
-                      onSubmitEditing={() => saveEditedTask(task.id)}
-                      accessibilityLabel="Edit task title"
-                    />
-                    <View style={styles.formActions}>
+                  const dateKey = getDateKey(date);
+                  const isSelected = dateKey === selectedDate;
+                  const isToday = dateKey === todayKey;
+                  const taskCount = tasksByDate[dateKey] ?? 0;
+
+                  return (
+                    <View key={dateKey} style={styles.calendarCell}>
                       <Pressable
-                        style={styles.cancelButton}
+                        style={[
+                          styles.calendarDay,
+                          isToday && styles.calendarDayToday,
+                          isSelected && styles.calendarDaySelected,
+                        ]}
+                        onPress={() => selectDate(date)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${date.toLocaleDateString("en-US", {
+                          month: "long",
+                          day: "numeric",
+                        })}${taskCount ? `, ${taskCount} tasks` : ""}`}
+                        accessibilityState={{ selected: isSelected }}
+                      >
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            isSelected && styles.calendarDayTextSelected,
+                          ]}
+                        >
+                          {date.getDate()}
+                        </Text>
+                        {taskCount > 0 && (
+                          <View
+                            style={[
+                              styles.calendarTaskDot,
+                              isSelected && styles.calendarTaskDotSelected,
+                            ]}
+                          />
+                        )}
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.calendarFooter}>
+                <Text style={styles.calendarHint}>
+                  Tap a day to see its tasks
+                </Text>
+                <Pressable
+                  style={styles.todayButton}
+                  onPress={() => selectDate(dateFromKey(todayKey))}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.todayButtonText}>Today</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
+              <Text style={styles.progressCount}>
+                {completedTaskCount} / {visibleTasks.length}
+              </Text>
+            </View>
+            <View
+              style={styles.progressTrack}
+              accessibilityRole="progressbar"
+              accessibilityValue={{
+                min: 0,
+                max: Math.max(visibleTasks.length, 1),
+                now: completedTaskCount,
+              }}
+            >
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${progressPercent}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressMessage}>{progressMessage}</Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>
+            {activeScreen === "home" || selectedDate === todayKey
+              ? "Today's tasks"
+              : selectedDateLabel}
+          </Text>
+
+          {visibleTasks.map((task, index) => {
+            const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
+
+            return (
+              <View key={task.id} style={styles.taskItem}>
+                <View
+                  style={[
+                    styles.taskCard,
+                    {
+                      backgroundColor: taskAccent.surface,
+                      borderColor: taskAccent.border,
+                    },
+                    task.completed && styles.taskCardCompleted,
+                  ]}
+                >
+                  <Pressable
+                    style={styles.taskToggle}
+                    onPress={() => toggleTask(task.id)}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={task.title}
+                    accessibilityState={{ checked: task.completed }}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        { borderColor: taskAccent.accent },
+                        task.completed && {
+                          backgroundColor: taskAccent.accent,
+                        },
+                      ]}
+                    >
+                      {task.completed && (
+                        <Text style={styles.checkmark}>✓</Text>
+                      )}
+                    </View>
+                    <View style={styles.taskTitleContainer}>
+                      <Text
+                        style={[
+                          styles.taskText,
+                          task.completed && styles.taskTextCompleted,
+                        ]}
+                        numberOfLines={1}
+                        onTextLayout={(event) => {
+                          const line = event.nativeEvent.lines[0];
+                          if (line) {
+                            const layout = {
+                              width: line.width,
+                              strikeTop: Math.max(
+                                0,
+                                line.y + line.ascender - line.capHeight / 2,
+                              ),
+                            };
+                            setTaskTitleLayouts((currentLayouts) => {
+                              const currentLayout = currentLayouts[task.id];
+                              if (
+                                currentLayout?.width === layout.width &&
+                                currentLayout.strikeTop === layout.strikeTop
+                              ) {
+                                return currentLayouts;
+                              }
+                              return { ...currentLayouts, [task.id]: layout };
+                            });
+                          }
+                        }}
+                      >
+                        {task.title}
+                      </Text>
+                      {task.completed &&
+                        taskTitleLayouts[task.id] !== undefined && (
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.strikethrough,
+                              {
+                                width: taskTitleLayouts[task.id].width,
+                                top: taskTitleLayouts[task.id].strikeTop,
+                              },
+                            ]}
+                          />
+                        )}
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={styles.moreButton}
+                    onPress={() => {
+                      animatePanelChange();
+                      setSelectedTaskId((currentId) =>
+                        currentId === task.id ? null : task.id,
+                      );
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`More options for ${task.title}`}
+                  >
+                    <Text style={styles.moreButtonText}>...</Text>
+                  </Pressable>
+                </View>
+
+                {editingTaskId === task.id ? (
+                  <SlidingPanel>
+                    <View style={styles.taskActionPanel}>
+                      <TextInput
+                        style={styles.taskInput}
+                        value={editedTaskTitle}
+                        onChangeText={setEditedTaskTitle}
+                        placeholder="Task title"
+                        placeholderTextColor={theme.colors.placeholder}
+                        maxLength={80}
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={() => saveEditedTask(task.id)}
+                        accessibilityLabel="Edit task title"
+                      />
+                      <View style={styles.formActions}>
+                        <Pressable
+                          style={styles.cancelButton}
+                          onPress={() => {
+                            animatePanelChange();
+                            setEditedTaskTitle("");
+                            setEditingTaskId(null);
+                          }}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.cancelButtonText}>Cancel</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.saveButton,
+                            !editedTaskTitle.trim() &&
+                            styles.saveButtonDisabled,
+                          ]}
+                          onPress={() => saveEditedTask(task.id)}
+                          disabled={!editedTaskTitle.trim()}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.saveButtonText}>Save</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </SlidingPanel>
+                ) : selectedTaskId === task.id ? (
+                  <SlidingPanel>
+                    <View style={styles.taskActionPanel}>
+                      <Pressable
+                        style={styles.actionButton}
                         onPress={() => {
                           animatePanelChange();
-                          setEditedTaskTitle("");
-                          setEditingTaskId(null);
+                          setEditedTaskTitle(task.title);
+                          setEditingTaskId(task.id);
+                          setSelectedTaskId(null);
                         }}
                         accessibilityRole="button"
                       >
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                        <Text style={styles.editActionText}>Edit</Text>
                       </Pressable>
                       <Pressable
-                        style={[
-                          styles.saveButton,
-                          !editedTaskTitle.trim() &&
-                            styles.saveButtonDisabled,
-                        ]}
-                        onPress={() => saveEditedTask(task.id)}
-                        disabled={!editedTaskTitle.trim()}
+                        style={styles.actionButton}
+                        onPress={() => openRescheduleDialog(task)}
                         accessibilityRole="button"
                       >
-                        <Text style={styles.saveButtonText}>Save</Text>
+                        <Text style={styles.editActionText}>Reschedule</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.actionButton}
+                        onPress={() => confirmDeleteTask(task.id, task.title)}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.deleteActionText}>Delete</Text>
                       </Pressable>
                     </View>
-                  </View>
-                </SlidingPanel>
-              ) : selectedTaskId === task.id ? (
-                <SlidingPanel>
-                  <View style={styles.taskActionPanel}>
-                    <Pressable
-                      style={styles.actionButton}
-                      onPress={() => {
-                        animatePanelChange();
-                        setEditedTaskTitle(task.title);
-                        setEditingTaskId(task.id);
-                        setSelectedTaskId(null);
-                      }}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.editActionText}>Edit</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.actionButton}
-                      onPress={() => openRescheduleDialog(task)}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.editActionText}>Reschedule</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.actionButton}
-                      onPress={() => confirmDeleteTask(task.id, task.title)}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.deleteActionText}>Delete</Text>
-                    </Pressable>
-                  </View>
-                </SlidingPanel>
-              ) : null}
-            </View>
-          );
-        })}
-        {tasksOnSelectedDate.length === 0 && (
-          <Text style={styles.emptyAgenda}>
-            Nothing planned for this day yet.
-          </Text>
-        )}
-        {isAddingTask ? (
-          <SlidingPanel>
-            <View style={styles.addTaskForm}>
-              <TextInput
-                style={styles.taskInput}
-                value={newTaskTitle}
-                onChangeText={setNewTaskTitle}
-                placeholder="What needs doing?"
-                placeholderTextColor={theme.colors.placeholder}
-                maxLength={80}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={addTask}
-                accessibilityLabel="New task title"
-              />
-              <View style={styles.formActions}>
-                <Pressable
-                  style={styles.cancelButton}
-                  onPress={() => {
-                    animatePanelChange();
-                    setNewTaskTitle("");
-                    setIsAddingTask(false);
-                  }}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.saveButton,
-                    !newTaskTitle.trim() && styles.saveButtonDisabled,
-                  ]}
-                  onPress={addTask}
-                  disabled={!newTaskTitle.trim()}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.saveButtonText}>Add task</Text>
-                </Pressable>
+                  </SlidingPanel>
+                ) : null}
               </View>
-            </View>
-          </SlidingPanel>
-        ) : (
-          <Pressable
-            style={styles.addTaskButton}
-            onPress={() => {
-              animatePanelChange();
-              setIsAddingTask(true);
-            }}
-            accessibilityRole="button"
-          >
-            <Text style={styles.addTaskButtonText}>+ Add a task</Text>
-          </Pressable>
-        )}
-      </ScrollView>
+            );
+          })}
+          {visibleTasks.length === 0 && (
+            <Text style={styles.emptyAgenda}>
+              Nothing planned for this day yet.
+            </Text>
+          )}
+          {isAddingTask ? (
+            <SlidingPanel>
+              <View style={styles.addTaskForm}>
+                <TextInput
+                  style={styles.taskInput}
+                  value={newTaskTitle}
+                  onChangeText={setNewTaskTitle}
+                  placeholder="What needs doing?"
+                  placeholderTextColor={theme.colors.placeholder}
+                  maxLength={80}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={addTask}
+                  accessibilityLabel="New task title"
+                />
+                <View style={styles.formActions}>
+                  <Pressable
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      animatePanelChange();
+                      setNewTaskTitle("");
+                      setIsAddingTask(false);
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.saveButton,
+                      !newTaskTitle.trim() && styles.saveButtonDisabled,
+                    ]}
+                    onPress={addTask}
+                    disabled={!newTaskTitle.trim()}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.saveButtonText}>Add task</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </SlidingPanel>
+          ) : (
+            <Pressable
+              style={styles.addTaskButton}
+              onPress={() => {
+                animatePanelChange();
+                setIsAddingTask(true);
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.addTaskButtonText}>+ Add a task</Text>
+            </Pressable>
+          )}
+        </ScrollView>
+      </Animated.View>
       {renderConfirmationDialog()}
       {renderRescheduleDialog()}
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
@@ -941,6 +1032,9 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  screenTransition: {
+    flex: 1,
   },
   content: {
     paddingHorizontal: 24,
@@ -979,6 +1073,20 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  headerActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginLeft: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  headerActionText: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 14,
   },
   calendarCard: {
     backgroundColor: colors.surface,
