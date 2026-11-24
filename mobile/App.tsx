@@ -19,6 +19,12 @@ import {
   UIManager,
   View,
 } from "react-native";
+import {
+  loadTasks,
+  resetSavedTasks,
+  saveTasks,
+  type Task,
+} from "./taskStorage";
 import { pastelRainbowTheme, type AppTheme } from "./theme";
 
 if (
@@ -60,6 +66,10 @@ function SlidingPanel({ children }: PropsWithChildren) {
   );
 }
 
+function getStorageErrorDetails(error: unknown) {
+  return error instanceof Error ? error.message : "Unexpected storage error.";
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
@@ -67,11 +77,14 @@ export default function App() {
     Nunito_700Bold,
     Nunito_800ExtraBold,
   });
-  const [tasks, setTasks] = useState([
-    { id: 1, title: "Write down a task", completed: false },
-    { id: 2, title: "Take a break", completed: false },
-  ]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [nextTaskId, setNextTaskId] = useState(3);
+  const [storageStatus, setStorageStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [taskTitleWidths, setTaskTitleWidths] = useState<Record<number, number>>(
     {},
   );
@@ -80,6 +93,60 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreTasks() {
+      try {
+        const loadedTasks = await loadTasks();
+        if (cancelled) {
+          return;
+        }
+
+        setTasks(loadedTasks);
+        setNextTaskId(
+          loadedTasks.reduce(
+            (largestId, task) => Math.max(largestId, task.id),
+            0,
+          ) + 1,
+        );
+        setStorageError(null);
+        setStorageStatus("ready");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setStorageError(
+          `Couldn't load saved tasks: ${getStorageErrorDetails(error)}`,
+        );
+        setStorageStatus("error");
+      }
+    }
+
+    void restoreTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAttempt]);
+
+  useEffect(() => {
+    if (storageStatus !== "ready") {
+      return;
+    }
+
+    saveQueue.current = saveQueue.current.then(async () => {
+      try {
+        await saveTasks(tasks);
+        setStorageError(null);
+      } catch (error) {
+        setStorageError(
+          `Couldn't save task changes: ${getStorageErrorDetails(error)}`,
+        );
+      }
+    });
+  }, [storageStatus, tasks]);
+
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -118,6 +185,40 @@ export default function App() {
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
     setIsAddingTask(false);
+  }
+
+  function retryTaskLoad() {
+    setStorageError(null);
+    setStorageStatus("loading");
+    setLoadAttempt((attempt) => attempt + 1);
+  }
+
+  async function resetSavedTasksAndRetry() {
+    try {
+      await resetSavedTasks();
+      retryTaskLoad();
+    } catch (error) {
+      setStorageError(
+        `Couldn't reset saved tasks: ${getStorageErrorDetails(error)}`,
+      );
+    }
+  }
+
+  function confirmResetSavedTasks() {
+    Alert.alert(
+      "Reset saved tasks?",
+      "This removes the saved list and restores the sample tasks.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: () => {
+            void resetSavedTasksAndRetry();
+          },
+        },
+      ],
+    );
   }
 
   function saveEditedTask(id: number) {
@@ -168,6 +269,39 @@ export default function App() {
     ]);
   }
 
+  if (storageStatus === "loading") {
+    return (
+      <View style={[styles.container, styles.storageScreen]}>
+        <Text style={styles.title}>Getting your tasks ready...</Text>
+        <StatusBar style="dark" />
+      </View>
+    );
+  }
+
+  if (storageStatus === "error") {
+    return (
+      <View style={[styles.container, styles.storageScreen]}>
+        <Text style={styles.title}>Couldn't open your tasks</Text>
+        <Text style={styles.storageMessage}>{storageError}</Text>
+        <Pressable
+          style={styles.addTaskButton}
+          onPress={retryTaskLoad}
+          accessibilityRole="button"
+        >
+          <Text style={styles.addTaskButtonText}>Try again</Text>
+        </Pressable>
+        <Pressable
+          style={styles.resetStorageButton}
+          onPress={confirmResetSavedTasks}
+          accessibilityRole="button"
+        >
+          <Text style={styles.cancelButtonText}>Reset saved tasks</Text>
+        </Pressable>
+        <StatusBar style="dark" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -179,6 +313,9 @@ export default function App() {
             <Text style={styles.title}>My Tasks</Text>
             <Text style={styles.date}>{today}</Text>
             <Text style={styles.tagline}>Little steps add up.</Text>
+            {storageError && (
+              <Text style={styles.storageWarning}>{storageError}</Text>
+            )}
           </View>
         </View>
 
@@ -400,6 +537,34 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 80,
     paddingBottom: 24,
+  },
+  storageScreen: {
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  storageMessage: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: "center",
+  },
+  storageWarning: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: 14,
+    borderWidth: 1,
+    color: colors.danger,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 14,
+    marginTop: 12,
+    padding: 12,
+  },
+  resetStorageButton: {
+    alignItems: "center",
+    borderRadius: 10,
+    marginTop: 8,
+    padding: 12,
   },
   header: {
     flexDirection: "row",

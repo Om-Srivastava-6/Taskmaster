@@ -18,6 +18,7 @@ export type AppTheme = {
     primarySoft: string;
     primaryText: string;
     danger: string;
+    dangerSoft: string;
     disabled: string;
     strikethrough: string;
   };
@@ -38,6 +39,7 @@ export const pastelRainbowTheme: AppTheme = {
     primarySoft: "#EEF2FF",
     primaryText: "#FFFFFF",
     danger: "#E97991",
+    dangerSoft: "#FFF0F3",
     disabled: "#C9C4D0",
     strikethrough: "#84798E",
   },
