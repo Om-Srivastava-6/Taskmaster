@@ -1,12 +1,25 @@
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export default function App() {
+  const [tasks, setTasks] = useState([
+    { id: 1, title: "Write down a task", completed: false },
+    { id: 2, title: "Take a break", completed: false },
+  ]);
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
+
+  function toggleTask(id: number) {
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === id ? { ...task, completed: !task.completed } : task,
+      ),
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -19,14 +32,36 @@ export default function App() {
 
       <Text style={styles.sectionTitle}>Today's tasks</Text>
 
-      <View style={styles.taskCard}>
-        <View style={styles.checkbox} />
-        <Text style={styles.taskText}>Write down a task</Text>
-      </View>
-      <View style={styles.taskCard}>
-        <View style={styles.checkbox} />
-        <Text style={styles.taskText}>Take a break</Text>
-      </View>
+      {tasks.map((task) => (
+        <Pressable
+          key={task.id}
+          style={[
+            styles.taskCard,
+            task.completed && styles.taskCardCompleted,
+          ]}
+          onPress={() => toggleTask(task.id)}
+          accessibilityRole="checkbox"
+          accessibilityLabel={task.title}
+          accessibilityState={{ checked: task.completed }}
+        >
+          <View
+            style={[
+              styles.checkbox,
+              task.completed && styles.checkboxCompleted,
+            ]}
+          >
+            {task.completed && <Text style={styles.checkmark}>✓</Text>}
+          </View>
+          <Text
+            style={[
+              styles.taskText,
+              task.completed && styles.taskTextCompleted,
+            ]}
+          >
+            {task.title}
+          </Text>
+        </Pressable>
+      ))}
       <StatusBar style="auto" />
     </View>
   );
@@ -71,6 +106,10 @@ const styles = StyleSheet.create({
     borderColor: "#E6E8EC",
     marginBottom: 10,
   },
+  taskCardCompleted: {
+    borderColor: "#BFDBFE",
+    backgroundColor: "#F8FBFF",
+  },
   checkbox: {
     width: 22,
     height: 22,
@@ -78,9 +117,24 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#2563EB",
     marginRight: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxCompleted: {
+    backgroundColor: "#2563EB",
   },
   taskText: {
     fontSize: 16,
     color: "#344054",
+  },
+  taskTextCompleted: {
+    color: "#667085",
+    textDecorationLine: "line-through",
+  },
+  checkmark: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
   },
 });
