@@ -27,6 +27,7 @@ import {
   loadTasks,
   resetSavedTasks,
   saveTasks,
+  sortTasksByPriority,
   type Task,
   type TaskPriority,
 } from "./taskStorage";
@@ -109,12 +110,15 @@ export default function App() {
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
   const [editedTaskPriority, setEditedTaskPriority] =
     useState<TaskPriority>("normal");
+  const [isCompletedSectionExpanded, setIsCompletedSectionExpanded] =
+    useState(true);
   const [todayKey] = useState(() => getDateKey(new Date()));
   const [activeScreen, setActiveScreen] = useState<"home" | "calendar">(
     "home",
   );
   const screenTransition = useRef(new Animated.Value(1)).current;
   const isScreenTransitioning = useRef(false);
+  const progressAnimation = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollViewInstance>(null);
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [displayedMonth, setDisplayedMonth] = useState(() => {
@@ -194,6 +198,23 @@ export default function App() {
     return () => keyboardSubscription.remove();
   }, [isAddingTask]);
 
+  useEffect(() => {
+    const activeDate = activeScreen === "home" ? todayKey : selectedDate;
+    const dateTasks = tasks.filter((task) => task.dueDate === activeDate);
+    const completedCount = dateTasks.filter((task) => task.completed).length;
+    const targetProgress =
+      dateTasks.length === 0 ? 0 : (completedCount / dateTasks.length) * 100;
+    const animation = Animated.timing(progressAnimation, {
+      toValue: targetProgress,
+      duration: 450,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+
+    animation.start();
+    return () => animation.stop();
+  }, [activeScreen, progressAnimation, selectedDate, tasks, todayKey]);
+
   const today = dateFromKey(todayKey).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -207,14 +228,39 @@ export default function App() {
   const theme = pastelRainbowTheme;
   const styles = createStyles(theme.colors);
   const activeDate = activeScreen === "home" ? todayKey : selectedDate;
-  const visibleTasks = tasks.filter((task) => task.dueDate === activeDate);
+  const visibleTasks = sortTasksByPriority(
+    tasks.filter((task) => task.dueDate === activeDate),
+  );
+  const uncompletedTasks = visibleTasks.filter((task) => !task.completed);
+  const completedTasks = visibleTasks.filter((task) => task.completed);
+  const taskListEntries: Array<
+    | { kind: "task"; task: Task; originalIndex: number }
+    | { kind: "completedToggle" }
+  > = [
+    ...uncompletedTasks.map((task) => ({
+      kind: "task" as const,
+      task,
+      originalIndex: visibleTasks.indexOf(task),
+    })),
+    ...(completedTasks.length > 0
+      ? [{ kind: "completedToggle" as const }]
+      : []),
+    ...(isCompletedSectionExpanded
+      ? completedTasks.map((task) => ({
+          kind: "task" as const,
+          task,
+          originalIndex: visibleTasks.indexOf(task),
+        }))
+      : []),
+  ];
   const completedTaskCount = visibleTasks.filter(
     (task) => task.completed,
   ).length;
-  const progressPercent =
-    visibleTasks.length === 0
-      ? 0
-      : (completedTaskCount / visibleTasks.length) * 100;
+  const progressWidth = progressAnimation.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+    extrapolate: "clamp",
+  });
   const progressMessage =
     visibleTasks.length === 0
       ? "Add a task to get started."
@@ -874,10 +920,10 @@ export default function App() {
                 now: completedTaskCount,
               }}
             >
-              <View
+              <Animated.View
                 style={[
                   styles.progressFill,
-                  { width: `${progressPercent}%` },
+                  { width: progressWidth },
                 ]}
               />
             </View>
@@ -890,8 +936,36 @@ export default function App() {
               : selectedDateLabel}
           </Text>
 
-          {visibleTasks.map((task, index) => {
-            const taskAccent = theme.taskAccents[index % theme.taskAccents.length];
+          {taskListEntries.map((entry) => {
+            if (entry.kind === "completedToggle") {
+              return (
+                <Pressable
+                  key="completed-toggle"
+                  style={styles.completedSectionToggle}
+                  onPress={() => {
+                    animatePanelChange();
+                    setIsCompletedSectionExpanded((expanded) => !expanded);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    expanded: isCompletedSectionExpanded,
+                  }}
+                >
+                  <Text style={styles.completedSectionTitle}>
+                    Completed ({completedTasks.length})
+                  </Text>
+                  <Text style={styles.completedSectionChevron}>
+                    {isCompletedSectionExpanded ? "⌃" : "⌄"}
+                  </Text>
+                </Pressable>
+              );
+            }
+
+            const { task } = entry;
+            const taskAccent =
+              theme.taskAccents[
+                entry.originalIndex % theme.taskAccents.length
+              ];
             const priorityTone = getPriorityTone(task.priority);
 
             return (
@@ -1416,6 +1490,27 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     fontSize: 15,
     marginBottom: 12,
     textAlign: "center",
+  },
+  completedSectionToggle: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    marginTop: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  completedSectionTitle: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 14,
+  },
+  completedSectionChevron: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 18,
   },
   taskItem: {
     marginBottom: 10,

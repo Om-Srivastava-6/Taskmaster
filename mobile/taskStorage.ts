@@ -11,6 +11,12 @@ export type Task = {
 
 export type TaskPriority = "low" | "normal" | "high";
 
+const priorityOrder: Record<TaskPriority, number> = {
+  high: 0,
+  normal: 1,
+  low: 2,
+};
+
 type StoredTask = Omit<Task, "dueDate" | "priority"> & {
   dueDate?: string;
   priority?: TaskPriority;
@@ -65,6 +71,13 @@ export async function loadTasks(): Promise<Task[]> {
 
 export async function saveTasks(tasks: Task[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+export function sortTasksByPriority(tasks: readonly Task[]): Task[] {
+  return [...tasks].sort(
+    (firstTask, secondTask) =>
+      priorityOrder[firstTask.priority] - priorityOrder[secondTask.priority],
+  );
 }
 
 export async function resetSavedTasks(): Promise<void> {
