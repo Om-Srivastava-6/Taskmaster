@@ -8,9 +8,12 @@ export type Task = {
   dueDate: string;
   priority: TaskPriority;
   notes: string;
+  recurrence: TaskRecurrence;
+  recurrenceParentId?: number;
 };
 
 export type TaskPriority = "low" | "normal" | "high";
+export type TaskRecurrence = "none" | "daily" | "weekly";
 
 const priorityOrder: Record<TaskPriority, number> = {
   high: 0,
@@ -18,10 +21,14 @@ const priorityOrder: Record<TaskPriority, number> = {
   low: 2,
 };
 
-type StoredTask = Omit<Task, "dueDate" | "priority" | "notes"> & {
+type StoredTask = Omit<
+  Task,
+  "dueDate" | "priority" | "notes" | "recurrence"
+> & {
   dueDate?: string;
   priority?: TaskPriority;
   notes?: string;
+  recurrence?: TaskRecurrence;
 };
 
 const STORAGE_KEY = "@taskmaster/tasks/v1";
@@ -35,6 +42,7 @@ export const initialTasks: Task[] = [
     dueDate: today,
     priority: "normal",
     notes: "",
+    recurrence: "none",
   },
   {
     id: 2,
@@ -43,6 +51,7 @@ export const initialTasks: Task[] = [
     dueDate: today,
     priority: "normal",
     notes: "",
+    recurrence: "none",
   },
 ];
 
@@ -71,6 +80,7 @@ export async function loadTasks(): Promise<Task[]> {
     dueDate: task.dueDate ?? today,
     priority: task.priority ?? "normal",
     notes: task.notes ?? "",
+    recurrence: task.recurrence ?? "none",
   }));
 }
 
@@ -103,10 +113,18 @@ function isStoredTask(value: unknown): value is StoredTask {
     typeof value.completed === "boolean" &&
     (!("dueDate" in value) || isDateKey(value.dueDate)) &&
     (!("priority" in value) || isTaskPriority(value.priority)) &&
-    (!("notes" in value) || typeof value.notes === "string")
+    (!("notes" in value) || typeof value.notes === "string") &&
+    (!("recurrence" in value) || isTaskRecurrence(value.recurrence)) &&
+    (!("recurrenceParentId" in value) ||
+      (typeof value.recurrenceParentId === "number" &&
+        Number.isSafeInteger(value.recurrenceParentId)))
   );
 }
 
 function isTaskPriority(value: unknown): value is TaskPriority {
   return value === "low" || value === "normal" || value === "high";
+}
+
+function isTaskRecurrence(value: unknown): value is TaskRecurrence {
+  return value === "none" || value === "daily" || value === "weekly";
 }

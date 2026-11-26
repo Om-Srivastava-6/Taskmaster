@@ -31,6 +31,7 @@ import {
   sortTasksByPriority,
   type Task,
   type TaskPriority,
+  type TaskRecurrence,
 } from "./taskStorage";
 import { pastelRainbowTheme, type AppTheme } from "./theme";
 
@@ -89,6 +90,22 @@ type DeletedTask = {
   index: number;
 };
 
+function getNextRecurringDueDate(
+  dueDate: string,
+  recurrence: Exclude<TaskRecurrence, "none">,
+  todayKey: string,
+): string {
+  const intervalDays = recurrence === "daily" ? 1 : 7;
+  const nextDate = dateFromKey(dueDate);
+  nextDate.setDate(nextDate.getDate() + intervalDays);
+
+  while (getDateKey(nextDate) <= todayKey) {
+    nextDate.setDate(nextDate.getDate() + intervalDays);
+  }
+
+  return getDateKey(nextDate);
+}
+
 export default function App() {
   const { bottom: bottomSafeArea } = useSafeAreaInsets();
   const [fontsLoaded] = useFonts({
@@ -113,12 +130,16 @@ export default function App() {
   const [newTaskNotes, setNewTaskNotes] = useState("");
   const [newTaskPriority, setNewTaskPriority] =
     useState<TaskPriority>("normal");
+  const [newTaskRecurrence, setNewTaskRecurrence] =
+    useState<TaskRecurrence>("none");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
   const [editedTaskNotes, setEditedTaskNotes] = useState("");
   const [editedTaskPriority, setEditedTaskPriority] =
     useState<TaskPriority>("normal");
+  const [editedTaskRecurrence, setEditedTaskRecurrence] =
+    useState<TaskRecurrence>("none");
   const [isCompletedSectionExpanded, setIsCompletedSectionExpanded] =
     useState(true);
   const [todayKey] = useState(() => getDateKey(new Date()));
@@ -376,6 +397,56 @@ export default function App() {
     );
   }
 
+  function renderRecurrenceSelector(
+    value: TaskRecurrence,
+    onChange: (recurrence: TaskRecurrence) => void,
+  ) {
+    const recurrences: TaskRecurrence[] = ["none", "daily", "weekly"];
+    const labels: Record<TaskRecurrence, string> = {
+      none: "Never",
+      daily: "Daily",
+      weekly: "Weekly",
+    };
+
+    return (
+      <View style={styles.prioritySelector}>
+        <Text style={styles.prioritySelectorLabel}>Repeat</Text>
+        <View style={styles.priorityOptions}>
+          {recurrences.map((recurrence) => {
+            const selected = recurrence === value;
+
+            return (
+              <Pressable
+                key={recurrence}
+                style={[
+                  styles.priorityOption,
+                  { borderColor: theme.colors.primary },
+                  selected && { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={() => onChange(recurrence)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.priorityOptionText,
+                    {
+                      color: selected
+                        ? theme.colors.primaryText
+                        : theme.colors.primary,
+                    },
+                  ]}
+                >
+                  {labels[recurrence]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    );
+  }
+
   function toggleScreen() {
     if (isScreenTransitioning.current) {
       return;
@@ -386,11 +457,13 @@ export default function App() {
     setNewTaskTitle("");
     setNewTaskNotes("");
     setNewTaskPriority("normal");
+    setNewTaskRecurrence("none");
     setSelectedTaskId(null);
     setEditingTaskId(null);
     setEditedTaskTitle("");
     setEditedTaskNotes("");
     setEditedTaskPriority("normal");
+    setEditedTaskRecurrence("none");
 
     Animated.timing(screenTransition, {
       toValue: 0,
@@ -421,11 +494,55 @@ export default function App() {
 
   function toggleTask(id: number) {
     animatePanelChange();
-    setTasks((currentTasks) =>
-      currentTasks.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task,
+    const task = tasks.find((currentTask) => currentTask.id === id);
+    if (!task) {
+      return;
+    }
+
+    if (task.completed) {
+      setTasks((currentTasks) =>
+        currentTasks
+          .filter(
+            (currentTask) =>
+              currentTask.recurrenceParentId !== id ||
+              currentTask.completed,
+          )
+          .map((currentTask) =>
+            currentTask.id === id
+              ? { ...currentTask, completed: false }
+              : currentTask,
+          ),
+      );
+      return;
+    }
+
+    const nextOccurrence =
+      task.recurrence === "none" ||
+      tasks.some((currentTask) => currentTask.recurrenceParentId === id)
+        ? null
+        : {
+            ...task,
+            id: nextTaskId,
+            completed: false,
+            dueDate: getNextRecurringDueDate(
+              task.dueDate,
+              task.recurrence,
+              todayKey,
+            ),
+            recurrenceParentId: task.id,
+          };
+
+    setTasks((currentTasks) => [
+      ...currentTasks.map((currentTask) =>
+        currentTask.id === id
+          ? { ...currentTask, completed: true }
+          : currentTask,
       ),
-    );
+      ...(nextOccurrence ? [nextOccurrence] : []),
+    ]);
+    if (nextOccurrence) {
+      setNextTaskId((currentId) => currentId + 1);
+    }
   }
 
   function duplicateTask(task: Task) {
@@ -442,6 +559,7 @@ export default function App() {
       id: nextTaskId,
       title: `${task.title.slice(0, 80 - copySuffix.length)}${copySuffix}`,
       completed: false,
+      recurrenceParentId: undefined,
     };
 
     animatePanelChange();
@@ -480,12 +598,14 @@ export default function App() {
         dueDate: activeDate,
         priority: newTaskPriority,
         notes: newTaskNotes.trim(),
+        recurrence: newTaskRecurrence,
       },
     ]);
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
     setNewTaskNotes("");
     setNewTaskPriority("normal");
+    setNewTaskRecurrence("none");
     setIsAddingTask(false);
   }
 
@@ -532,6 +652,7 @@ export default function App() {
               title,
               notes: editedTaskNotes.trim(),
               priority: editedTaskPriority,
+              recurrence: editedTaskRecurrence,
             }
           : task,
       ),
@@ -544,6 +665,7 @@ export default function App() {
     setEditedTaskTitle("");
     setEditedTaskNotes("");
     setEditedTaskPriority("normal");
+    setEditedTaskRecurrence("none");
     setEditingTaskId(null);
   }
 
@@ -1285,6 +1407,11 @@ export default function App() {
                           {task.notes}
                         </Text>
                       )}
+                      {task.recurrence !== "none" && (
+                        <Text style={styles.taskRecurrence}>
+                          Repeats {task.recurrence}
+                        </Text>
+                      )}
                     </View>
                     <View
                       style={[
@@ -1363,6 +1490,10 @@ export default function App() {
                         editedTaskPriority,
                         setEditedTaskPriority,
                       )}
+                      {renderRecurrenceSelector(
+                        editedTaskRecurrence,
+                        setEditedTaskRecurrence,
+                      )}
                       <View style={styles.formActions}>
                         <Pressable
                           style={styles.cancelButton}
@@ -1371,6 +1502,7 @@ export default function App() {
                             setEditedTaskTitle("");
                             setEditedTaskNotes("");
                             setEditedTaskPriority("normal");
+                            setEditedTaskRecurrence("none");
                             setEditingTaskId(null);
                           }}
                           accessibilityRole="button"
@@ -1402,6 +1534,7 @@ export default function App() {
                           setEditedTaskTitle(task.title);
                           setEditedTaskNotes(task.notes);
                           setEditedTaskPriority(task.priority);
+                          setEditedTaskRecurrence(task.recurrence);
                           setEditingTaskId(task.id);
                           setSelectedTaskId(null);
                         }}
@@ -1481,6 +1614,10 @@ export default function App() {
                   newTaskPriority,
                   setNewTaskPriority,
                 )}
+                {renderRecurrenceSelector(
+                  newTaskRecurrence,
+                  setNewTaskRecurrence,
+                )}
                 <View style={styles.formActions}>
                   <Pressable
                     style={styles.cancelButton}
@@ -1489,6 +1626,7 @@ export default function App() {
                       setNewTaskTitle("");
                       setNewTaskNotes("");
                       setNewTaskPriority("normal");
+                      setNewTaskRecurrence("none");
                       setIsAddingTask(false);
                     }}
                     accessibilityRole="button"
@@ -1899,6 +2037,12 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     color: colors.mutedText,
     fontFamily: "Nunito_400Regular",
     fontSize: 12,
+    marginTop: 2,
+  },
+  taskRecurrence: {
+    color: colors.primary,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 11,
     marginTop: 2,
   },
   priorityBadge: {
