@@ -110,11 +110,13 @@ export default function App() {
   >({});
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskNotes, setNewTaskNotes] = useState("");
   const [newTaskPriority, setNewTaskPriority] =
     useState<TaskPriority>("normal");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
+  const [editedTaskNotes, setEditedTaskNotes] = useState("");
   const [editedTaskPriority, setEditedTaskPriority] =
     useState<TaskPriority>("normal");
   const [isCompletedSectionExpanded, setIsCompletedSectionExpanded] =
@@ -304,7 +306,9 @@ export default function App() {
     { weekday: "long", month: "long", day: "numeric" },
   );
   const matchingTasks = tasks.filter((task) =>
-    task.title.toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase()),
+    `${task.title}\n${task.notes}`
+      .toLocaleLowerCase()
+      .includes(searchQuery.trim().toLocaleLowerCase()),
   );
 
   function animatePanelChange() {
@@ -380,10 +384,12 @@ export default function App() {
     isScreenTransitioning.current = true;
     setIsAddingTask(false);
     setNewTaskTitle("");
+    setNewTaskNotes("");
     setNewTaskPriority("normal");
     setSelectedTaskId(null);
     setEditingTaskId(null);
     setEditedTaskTitle("");
+    setEditedTaskNotes("");
     setEditedTaskPriority("normal");
 
     Animated.timing(screenTransition, {
@@ -473,10 +479,12 @@ export default function App() {
         completed: false,
         dueDate: activeDate,
         priority: newTaskPriority,
+        notes: newTaskNotes.trim(),
       },
     ]);
     setNextTaskId((currentId) => currentId + 1);
     setNewTaskTitle("");
+    setNewTaskNotes("");
     setNewTaskPriority("normal");
     setIsAddingTask(false);
   }
@@ -519,7 +527,12 @@ export default function App() {
     setTasks((currentTasks) =>
       currentTasks.map((task) =>
         task.id === id
-          ? { ...task, title, priority: editedTaskPriority }
+          ? {
+              ...task,
+              title,
+              notes: editedTaskNotes.trim(),
+              priority: editedTaskPriority,
+            }
           : task,
       ),
     );
@@ -529,6 +542,7 @@ export default function App() {
       return remainingLayouts;
     });
     setEditedTaskTitle("");
+    setEditedTaskNotes("");
     setEditedTaskPriority("normal");
     setEditingTaskId(null);
   }
@@ -650,7 +664,7 @@ export default function App() {
           >
             {searchQuery.trim().length === 0 ? (
               <Text style={styles.searchHint}>
-                Search tasks by title across all dates.
+                Search task titles and notes across all dates.
               </Text>
             ) : matchingTasks.length === 0 ? (
               <Text style={styles.searchHint}>
@@ -682,6 +696,14 @@ export default function App() {
                       >
                         {task.title}
                       </Text>
+                      {task.notes.trim().length > 0 && (
+                        <Text
+                          style={styles.searchResultNote}
+                          numberOfLines={1}
+                        >
+                          {task.notes}
+                        </Text>
+                      )}
                       <Text style={styles.searchResultDate}>
                         {task.completed ? "Completed · " : ""}
                         {taskDate}
@@ -1255,6 +1277,14 @@ export default function App() {
                             ]}
                           />
                         )}
+                      {task.notes.trim().length > 0 && (
+                        <Text
+                          style={styles.taskNotes}
+                          numberOfLines={2}
+                        >
+                          {task.notes}
+                        </Text>
+                      )}
                     </View>
                     <View
                       style={[
@@ -1313,6 +1343,22 @@ export default function App() {
                         onSubmitEditing={() => saveEditedTask(task.id)}
                         accessibilityLabel="Edit task title"
                       />
+                      <TextInput
+                        style={styles.taskNotesInput}
+                        value={editedTaskNotes}
+                        onChangeText={setEditedTaskNotes}
+                        placeholder="Add a note (optional)"
+                        placeholderTextColor={theme.colors.placeholder}
+                        maxLength={280}
+                        multiline
+                        textAlignVertical="top"
+                        onFocus={() =>
+                          requestAnimationFrame(() => {
+                            scrollRef.current?.scrollToEnd({ animated: true });
+                          })
+                        }
+                        accessibilityLabel="Edit task note"
+                      />
                       {renderPrioritySelector(
                         editedTaskPriority,
                         setEditedTaskPriority,
@@ -1323,6 +1369,7 @@ export default function App() {
                           onPress={() => {
                             animatePanelChange();
                             setEditedTaskTitle("");
+                            setEditedTaskNotes("");
                             setEditedTaskPriority("normal");
                             setEditingTaskId(null);
                           }}
@@ -1353,6 +1400,7 @@ export default function App() {
                         onPress={() => {
                           animatePanelChange();
                           setEditedTaskTitle(task.title);
+                          setEditedTaskNotes(task.notes);
                           setEditedTaskPriority(task.priority);
                           setEditingTaskId(task.id);
                           setSelectedTaskId(null);
@@ -1413,6 +1461,22 @@ export default function App() {
                   onSubmitEditing={addTask}
                   accessibilityLabel="New task title"
                 />
+                <TextInput
+                  style={styles.taskNotesInput}
+                  value={newTaskNotes}
+                  onChangeText={setNewTaskNotes}
+                  placeholder="Add a note (optional)"
+                  placeholderTextColor={theme.colors.placeholder}
+                  maxLength={280}
+                  multiline
+                  textAlignVertical="top"
+                  onFocus={() =>
+                    requestAnimationFrame(() => {
+                      scrollRef.current?.scrollToEnd({ animated: true });
+                    })
+                  }
+                  accessibilityLabel="New task note"
+                />
                 {renderPrioritySelector(
                   newTaskPriority,
                   setNewTaskPriority,
@@ -1423,6 +1487,7 @@ export default function App() {
                     onPress={() => {
                       animatePanelChange();
                       setNewTaskTitle("");
+                      setNewTaskNotes("");
                       setNewTaskPriority("normal");
                       setIsAddingTask(false);
                     }}
@@ -1830,6 +1895,12 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+  taskNotes: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
   priorityBadge: {
     alignSelf: "center",
     borderRadius: 10,
@@ -1947,6 +2018,17 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     fontFamily: "Nunito_400Regular",
     fontSize: 16,
     paddingVertical: 10,
+  },
+  taskNotesInput: {
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.text,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 14,
+    marginTop: 4,
+    minHeight: 68,
+    padding: 10,
   },
   formActions: {
     flexDirection: "row",
@@ -2068,6 +2150,12 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     color: colors.text,
     fontFamily: "Nunito_700Bold",
     fontSize: 15,
+  },
+  searchResultNote: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 12,
+    marginTop: 2,
   },
   searchResultDate: {
     color: colors.mutedText,

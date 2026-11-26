@@ -7,6 +7,7 @@ export type Task = {
   completed: boolean;
   dueDate: string;
   priority: TaskPriority;
+  notes: string;
 };
 
 export type TaskPriority = "low" | "normal" | "high";
@@ -17,9 +18,10 @@ const priorityOrder: Record<TaskPriority, number> = {
   low: 2,
 };
 
-type StoredTask = Omit<Task, "dueDate" | "priority"> & {
+type StoredTask = Omit<Task, "dueDate" | "priority" | "notes"> & {
   dueDate?: string;
   priority?: TaskPriority;
+  notes?: string;
 };
 
 const STORAGE_KEY = "@taskmaster/tasks/v1";
@@ -32,6 +34,7 @@ export const initialTasks: Task[] = [
     completed: false,
     dueDate: today,
     priority: "normal",
+    notes: "",
   },
   {
     id: 2,
@@ -39,6 +42,7 @@ export const initialTasks: Task[] = [
     completed: false,
     dueDate: today,
     priority: "normal",
+    notes: "",
   },
 ];
 
@@ -66,6 +70,7 @@ export async function loadTasks(): Promise<Task[]> {
     ...task,
     dueDate: task.dueDate ?? today,
     priority: task.priority ?? "normal",
+    notes: task.notes ?? "",
   }));
 }
 
@@ -97,7 +102,8 @@ function isStoredTask(value: unknown): value is StoredTask {
     "completed" in value &&
     typeof value.completed === "boolean" &&
     (!("dueDate" in value) || isDateKey(value.dueDate)) &&
-    (!("priority" in value) || isTaskPriority(value.priority))
+    (!("priority" in value) || isTaskPriority(value.priority)) &&
+    (!("notes" in value) || typeof value.notes === "string")
   );
 }
 
