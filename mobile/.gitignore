@@ -39,3 +39,5 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+Set-Location .\Taskmaster\mobile
+npm.cmd start -- --tunnel ngrok --go
