@@ -83,6 +83,11 @@ type Confirmation = {
   onConfirm: () => void;
 };
 
+type DeletedTask = {
+  task: Task;
+  index: number;
+};
+
 export default function App() {
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
@@ -130,6 +135,9 @@ export default function App() {
   );
   const [rescheduleMonth, setRescheduleMonth] = useState(displayedMonth);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [deletedTask, setDeletedTask] = useState<DeletedTask | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,6 +223,15 @@ export default function App() {
     return () => animation.stop();
   }, [activeScreen, progressAnimation, selectedDate, tasks, todayKey]);
 
+  useEffect(() => {
+    if (!deletedTask) {
+      return;
+    }
+
+    const timeout = setTimeout(() => setDeletedTask(null), 5000);
+    return () => clearTimeout(timeout);
+  }, [deletedTask]);
+
   const today = dateFromKey(todayKey).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -283,6 +300,9 @@ export default function App() {
   const selectedDateLabel = dateFromKey(selectedDate).toLocaleDateString(
     "en-US",
     { weekday: "long", month: "long", day: "numeric" },
+  );
+  const matchingTasks = tasks.filter((task) =>
+    task.title.toLocaleLowerCase().includes(searchQuery.trim().toLocaleLowerCase()),
   );
 
   function animatePanelChange() {
@@ -481,7 +501,14 @@ export default function App() {
       message: `Delete "${title}"?`,
       confirmLabel: "Delete",
       onConfirm: () => {
+        const index = tasks.findIndex((task) => task.id === id);
+        const taskToRestore = tasks[index];
+        if (!taskToRestore) {
+          return;
+        }
+
         animatePanelChange();
+        setDeletedTask({ task: taskToRestore, index });
         setTasks((currentTasks) =>
           currentTasks.filter((task) => task.id !== id),
         );
@@ -493,6 +520,24 @@ export default function App() {
         setSelectedTaskId(null);
       },
     });
+  }
+
+  function undoDeleteTask() {
+    if (!deletedTask) {
+      return;
+    }
+
+    animatePanelChange();
+    setTasks((currentTasks) => {
+      if (currentTasks.some((task) => task.id === deletedTask.task.id)) {
+        return currentTasks;
+      }
+
+      const restoredTasks = [...currentTasks];
+      restoredTasks.splice(deletedTask.index, 0, deletedTask.task);
+      return restoredTasks;
+    });
+    setDeletedTask(null);
   }
 
   function changeMonth(offset: number) {
@@ -511,6 +556,123 @@ export default function App() {
     animatePanelChange();
     setSelectedDate(getDateKey(date));
     setDisplayedMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+  }
+
+  function closeSearch() {
+    setIsSearchOpen(false);
+    setSearchQuery("");
+    Keyboard.dismiss();
+  }
+
+  function openSearchedTask(task: Task) {
+    const taskDate = dateFromKey(task.dueDate);
+    setSelectedDate(task.dueDate);
+    setDisplayedMonth(
+      new Date(taskDate.getFullYear(), taskDate.getMonth(), 1, 12),
+    );
+    setActiveScreen("calendar");
+    closeSearch();
+  }
+
+  function renderSearchDialog() {
+    return (
+      <Modal
+        visible={isSearchOpen}
+        animationType="slide"
+        onRequestClose={closeSearch}
+      >
+        <KeyboardAvoidingView
+          style={styles.searchScreen}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.searchHeader}>
+            <Text style={styles.title}>Find a task</Text>
+            <Pressable
+              style={styles.searchCloseButton}
+              onPress={closeSearch}
+              accessibilityRole="button"
+              accessibilityLabel="Close task search"
+            >
+              <Text style={styles.searchCloseText}>Close</Text>
+            </Pressable>
+          </View>
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search all tasks"
+            placeholderTextColor={theme.colors.placeholder}
+            returnKeyType="search"
+            autoFocus
+            accessibilityLabel="Search all tasks"
+          />
+          <ScrollView
+            style={styles.searchResults}
+            keyboardShouldPersistTaps="handled"
+          >
+            {searchQuery.trim().length === 0 ? (
+              <Text style={styles.searchHint}>
+                Search tasks by title across all dates.
+              </Text>
+            ) : matchingTasks.length === 0 ? (
+              <Text style={styles.searchHint}>
+                No tasks found for “{searchQuery.trim()}”.
+              </Text>
+            ) : (
+              matchingTasks.map((task) => {
+                const priorityTone = getPriorityTone(task.priority);
+                const taskDate = dateFromKey(task.dueDate).toLocaleDateString(
+                  "en-US",
+                  { weekday: "short", month: "short", day: "numeric" },
+                );
+
+                return (
+                  <Pressable
+                    key={task.id}
+                    style={styles.searchResult}
+                    onPress={() => openSearchedTask(task)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${task.title}, ${taskDate}, ${task.priority} priority`}
+                  >
+                    <View style={styles.searchResultText}>
+                      <Text
+                        style={[
+                          styles.searchResultTitle,
+                          task.completed && styles.taskTextCompleted,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {task.title}
+                      </Text>
+                      <Text style={styles.searchResultDate}>
+                        {task.completed ? "Completed · " : ""}
+                        {taskDate}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.priorityBadge,
+                        { backgroundColor: priorityTone.backgroundColor },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.priorityBadgeText,
+                          { color: priorityTone.color },
+                        ]}
+                      >
+                        {task.priority.charAt(0).toUpperCase() +
+                          task.priority.slice(1)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
   }
 
   function openRescheduleDialog(task: Task) {
@@ -787,20 +949,30 @@ export default function App() {
                 <Text style={styles.storageWarning}>{storageError}</Text>
               )}
             </View>
-            <Pressable
-              style={styles.headerActionButton}
-              onPress={toggleScreen}
-              accessibilityRole="button"
-              accessibilityLabel={
-                activeScreen === "home"
-                  ? "Open calendar"
-                  : "Return to my tasks"
-              }
-            >
-              <Text style={styles.headerActionText}>
-                {activeScreen === "home" ? "Calendar" : "My tasks"}
-              </Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                style={styles.headerActionButton}
+                onPress={() => setIsSearchOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Search tasks"
+              >
+                <Text style={styles.headerActionText}>Search</Text>
+              </Pressable>
+              <Pressable
+                style={styles.headerActionButton}
+                onPress={toggleScreen}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  activeScreen === "home"
+                    ? "Open calendar"
+                    : "Return to my tasks"
+                }
+              >
+                <Text style={styles.headerActionText}>
+                  {activeScreen === "home" ? "Calendar" : "My tasks"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
           {activeScreen === "calendar" && (
@@ -1241,8 +1413,22 @@ export default function App() {
           )}
         </ScrollView>
       </Animated.View>
+      {deletedTask && (
+        <View style={styles.undoToast} accessibilityLiveRegion="polite">
+          <Text style={styles.undoToastMessage}>Task deleted</Text>
+          <Pressable
+            style={styles.undoButton}
+            onPress={undoDeleteTask}
+            accessibilityRole="button"
+            accessibilityLabel={`Undo deleting ${deletedTask.task.title}`}
+          >
+            <Text style={styles.undoButtonText}>Undo</Text>
+          </Pressable>
+        </View>
+      )}
       {renderConfirmationDialog()}
       {renderRescheduleDialog()}
+      {renderSearchDialog()}
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
     </KeyboardAvoidingView>
   );
@@ -1255,6 +1441,41 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   },
   screenTransition: {
     flex: 1,
+  },
+  undoToast: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    bottom: 20,
+    elevation: 6,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    left: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    position: "absolute",
+    right: 20,
+    shadowColor: "#352D40",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+  },
+  undoToastMessage: {
+    color: colors.text,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 14,
+  },
+  undoButton: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  undoButtonText: {
+    color: colors.primary,
+    fontFamily: "Nunito_800ExtraBold",
+    fontSize: 14,
   },
   content: {
     paddingHorizontal: 24,
@@ -1294,13 +1515,18 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginLeft: 8,
+  },
   headerActionButton: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,
     borderRadius: 14,
     justifyContent: "center",
-    marginLeft: 12,
-    paddingHorizontal: 14,
+    marginLeft: 6,
+    paddingHorizontal: 10,
     paddingVertical: 10,
   },
   headerActionText: {
@@ -1732,6 +1958,75 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     maxWidth: 420,
     padding: 16,
     width: "100%",
+  },
+  searchScreen: {
+    backgroundColor: colors.background,
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  searchHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  searchCloseButton: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchCloseText: {
+    color: colors.primary,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 14,
+  },
+  searchInput: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    color: colors.text,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  searchResults: {
+    flex: 1,
+    marginTop: 16,
+  },
+  searchHint: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 15,
+    paddingVertical: 16,
+    textAlign: "center",
+  },
+  searchResult: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 8,
+    padding: 14,
+  },
+  searchResultText: {
+    flex: 1,
+  },
+  searchResultTitle: {
+    color: colors.text,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 15,
+  },
+  searchResultDate: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 12,
+    marginTop: 2,
   },
   datePickerFooter: {
     alignItems: "center",
