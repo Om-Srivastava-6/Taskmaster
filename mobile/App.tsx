@@ -22,6 +22,7 @@ import {
   View,
   type ScrollViewInstance,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { dateFromKey, getDateKey, getMonthGrid } from "./dateUtils";
 import {
   loadTasks,
@@ -89,6 +90,7 @@ type DeletedTask = {
 };
 
 export default function App() {
+  const { bottom: bottomSafeArea } = useSafeAreaInsets();
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
     Nunito_600SemiBold,
@@ -418,6 +420,42 @@ export default function App() {
         task.id === id ? { ...task, completed: !task.completed } : task,
       ),
     );
+  }
+
+  function duplicateTask(task: Task) {
+    const taskIndex = tasks.findIndex(
+      (currentTask) => currentTask.id === task.id,
+    );
+    if (taskIndex === -1) {
+      return;
+    }
+
+    const copySuffix = " (copy)";
+    const duplicatedTask: Task = {
+      ...task,
+      id: nextTaskId,
+      title: `${task.title.slice(0, 80 - copySuffix.length)}${copySuffix}`,
+      completed: false,
+    };
+
+    animatePanelChange();
+    setTasks((currentTasks) => {
+      const currentIndex = currentTasks.findIndex(
+        (currentTask) => currentTask.id === task.id,
+      );
+      if (currentIndex === -1) {
+        return currentTasks;
+      }
+
+      const insertIndex = currentIndex + 1;
+      return [
+        ...currentTasks.slice(0, insertIndex),
+        duplicatedTask,
+        ...currentTasks.slice(insertIndex),
+      ];
+    });
+    setNextTaskId((currentId) => currentId + 1);
+    setSelectedTaskId(null);
   }
 
   function addTask() {
@@ -1325,6 +1363,13 @@ export default function App() {
                       </Pressable>
                       <Pressable
                         style={styles.actionButton}
+                        onPress={() => duplicateTask(task)}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.editActionText}>Duplicate</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.actionButton}
                         onPress={() => openRescheduleDialog(task)}
                         accessibilityRole="button"
                       >
@@ -1414,7 +1459,10 @@ export default function App() {
         </ScrollView>
       </Animated.View>
       {deletedTask && (
-        <View style={styles.undoToast} accessibilityLiveRegion="polite">
+        <View
+          style={[styles.undoToast, { bottom: bottomSafeArea + 12 }]}
+          accessibilityLiveRegion="polite"
+        >
           <Text style={styles.undoToastMessage}>Task deleted</Text>
           <Pressable
             style={styles.undoButton}
@@ -1448,7 +1496,6 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
-    bottom: 20,
     elevation: 6,
     flexDirection: "row",
     justifyContent: "space-between",
