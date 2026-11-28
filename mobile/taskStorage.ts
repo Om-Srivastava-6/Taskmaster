@@ -10,6 +10,13 @@ export type Task = {
   notes: string;
   recurrence: TaskRecurrence;
   recurrenceParentId?: number;
+  subtasks: Subtask[];
+};
+
+export type Subtask = {
+  id: number;
+  title: string;
+  completed: boolean;
 };
 
 export type TaskPriority = "low" | "normal" | "high";
@@ -23,12 +30,13 @@ const priorityOrder: Record<TaskPriority, number> = {
 
 type StoredTask = Omit<
   Task,
-  "dueDate" | "priority" | "notes" | "recurrence"
+  "dueDate" | "priority" | "notes" | "recurrence" | "subtasks"
 > & {
   dueDate?: string;
   priority?: TaskPriority;
   notes?: string;
   recurrence?: TaskRecurrence;
+  subtasks?: Subtask[];
 };
 
 const STORAGE_KEY = "@taskmaster/tasks/v1";
@@ -43,6 +51,7 @@ export const initialTasks: Task[] = [
     priority: "normal",
     notes: "",
     recurrence: "none",
+    subtasks: [],
   },
   {
     id: 2,
@@ -52,6 +61,7 @@ export const initialTasks: Task[] = [
     priority: "normal",
     notes: "",
     recurrence: "none",
+    subtasks: [],
   },
 ];
 
@@ -81,6 +91,7 @@ export async function loadTasks(): Promise<Task[]> {
     priority: task.priority ?? "normal",
     notes: task.notes ?? "",
     recurrence: task.recurrence ?? "none",
+    subtasks: task.subtasks ?? [],
   }));
 }
 
@@ -115,6 +126,7 @@ function isStoredTask(value: unknown): value is StoredTask {
     (!("priority" in value) || isTaskPriority(value.priority)) &&
     (!("notes" in value) || typeof value.notes === "string") &&
     (!("recurrence" in value) || isTaskRecurrence(value.recurrence)) &&
+    (!("subtasks" in value) || isValidSubtasks(value.subtasks)) &&
     (!("recurrenceParentId" in value) ||
       (typeof value.recurrenceParentId === "number" &&
         Number.isSafeInteger(value.recurrenceParentId)))
@@ -127,4 +139,27 @@ function isTaskPriority(value: unknown): value is TaskPriority {
 
 function isTaskRecurrence(value: unknown): value is TaskRecurrence {
   return value === "none" || value === "daily" || value === "weekly";
+}
+
+function isSubtask(value: unknown): value is Subtask {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "number" &&
+    Number.isSafeInteger(value.id) &&
+    "title" in value &&
+    typeof value.title === "string" &&
+    value.title.trim().length > 0 &&
+    "completed" in value &&
+    typeof value.completed === "boolean"
+  );
+}
+
+function isValidSubtasks(value: unknown): value is Subtask[] {
+  return (
+    Array.isArray(value) &&
+    value.every(isSubtask) &&
+    new Set(value.map((subtask) => subtask.id)).size === value.length
+  );
 }

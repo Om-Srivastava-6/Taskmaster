@@ -32,6 +32,7 @@ import {
   type Task,
   type TaskPriority,
   type TaskRecurrence,
+  type Subtask,
 } from "./taskStorage";
 import { pastelRainbowTheme, type AppTheme } from "./theme";
 
@@ -116,6 +117,7 @@ export default function App() {
   });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [nextTaskId, setNextTaskId] = useState(3);
+  const [nextSubtaskId, setNextSubtaskId] = useState(1);
   const [storageStatus, setStorageStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -133,6 +135,8 @@ export default function App() {
   const [newTaskRecurrence, setNewTaskRecurrence] =
     useState<TaskRecurrence>("none");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [checklistTaskId, setChecklistTaskId] = useState<number | null>(null);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editedTaskTitle, setEditedTaskTitle] = useState("");
   const [editedTaskNotes, setEditedTaskNotes] = useState("");
@@ -178,6 +182,17 @@ export default function App() {
         setNextTaskId(
           loadedTasks.reduce(
             (largestId, task) => Math.max(largestId, task.id),
+            0,
+          ) + 1,
+        );
+        setNextSubtaskId(
+          loadedTasks.reduce(
+            (largestId, task) =>
+              task.subtasks.reduce(
+                (taskLargestId, subtask) =>
+                  Math.max(taskLargestId, subtask.id),
+                largestId,
+              ),
             0,
           ) + 1,
         );
@@ -459,6 +474,8 @@ export default function App() {
     setNewTaskPriority("normal");
     setNewTaskRecurrence("none");
     setSelectedTaskId(null);
+    setChecklistTaskId(null);
+    setNewSubtaskTitle("");
     setEditingTaskId(null);
     setEditedTaskTitle("");
     setEditedTaskNotes("");
@@ -530,6 +547,10 @@ export default function App() {
               todayKey,
             ),
             recurrenceParentId: task.id,
+            subtasks: task.subtasks.map((subtask) => ({
+              ...subtask,
+              completed: false,
+            })),
           };
 
     setTasks((currentTasks) => [
@@ -543,6 +564,63 @@ export default function App() {
     if (nextOccurrence) {
       setNextTaskId((currentId) => currentId + 1);
     }
+  }
+
+  function addSubtask(taskId: number) {
+    const title = newSubtaskTitle.trim();
+    if (!title) {
+      return;
+    }
+
+    animatePanelChange();
+    const subtask: Subtask = {
+      id: nextSubtaskId,
+      title,
+      completed: false,
+    };
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === taskId
+          ? { ...task, subtasks: [...task.subtasks, subtask] }
+          : task,
+      ),
+    );
+    setNextSubtaskId((currentId) => currentId + 1);
+    setNewSubtaskTitle("");
+  }
+
+  function toggleSubtask(taskId: number, subtaskId: number) {
+    animatePanelChange();
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: task.subtasks.map((subtask) =>
+                subtask.id === subtaskId
+                  ? { ...subtask, completed: !subtask.completed }
+                  : subtask,
+              ),
+            }
+          : task,
+      ),
+    );
+  }
+
+  function deleteSubtask(taskId: number, subtaskId: number) {
+    animatePanelChange();
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: task.subtasks.filter(
+                (subtask) => subtask.id !== subtaskId,
+              ),
+            }
+          : task,
+      ),
+    );
   }
 
   function duplicateTask(task: Task) {
@@ -560,6 +638,10 @@ export default function App() {
       title: `${task.title.slice(0, 80 - copySuffix.length)}${copySuffix}`,
       completed: false,
       recurrenceParentId: undefined,
+      subtasks: task.subtasks.map((subtask) => ({
+        ...subtask,
+        completed: false,
+      })),
     };
 
     animatePanelChange();
@@ -579,6 +661,7 @@ export default function App() {
       ];
     });
     setNextTaskId((currentId) => currentId + 1);
+    setChecklistTaskId(null);
     setSelectedTaskId(null);
   }
 
@@ -599,6 +682,7 @@ export default function App() {
         priority: newTaskPriority,
         notes: newTaskNotes.trim(),
         recurrence: newTaskRecurrence,
+        subtasks: [],
       },
     ]);
     setNextTaskId((currentId) => currentId + 1);
@@ -686,6 +770,10 @@ export default function App() {
         setTasks((currentTasks) =>
           currentTasks.filter((task) => task.id !== id),
         );
+        if (checklistTaskId === id) {
+          setChecklistTaskId(null);
+          setNewSubtaskTitle("");
+        }
         setTaskTitleLayouts((currentLayouts) => {
           const remainingLayouts = { ...currentLayouts };
           delete remainingLayouts[id];
@@ -894,6 +982,7 @@ export default function App() {
     setSelectedDate(dateKey);
     setDisplayedMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
     setActiveScreen("calendar");
+    setChecklistTaskId(null);
     setSelectedTaskId(null);
     setReschedulingTaskId(null);
   }
@@ -908,100 +997,102 @@ export default function App() {
       >
         <View style={styles.modalOverlay}>
           {reschedulingTask && (
-            <SlidingPanel>
-              <View style={styles.datePickerDialog}>
-                <Text style={styles.confirmTitle}>Move task to a day</Text>
-                <Text style={styles.confirmMessage}>
-                  {reschedulingTask.title}
-                </Text>
-                <View style={styles.calendarHeader}>
-                  <Pressable
-                    style={styles.monthArrow}
-                    onPress={() => changeRescheduleMonth(-1)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Previous month"
-                  >
-                    <Text style={styles.monthArrowText}>‹</Text>
-                  </Pressable>
-                  <Text style={styles.monthTitle}>
-                    {rescheduleMonth.toLocaleDateString("en-US", {
-                      month: "long",
-                      year: "numeric",
-                    })}
+            <View style={styles.datePickerDialogContainer}>
+              <SlidingPanel>
+                <View style={styles.datePickerDialog}>
+                  <Text style={styles.confirmTitle}>Move task to a day</Text>
+                  <Text style={styles.confirmMessage}>
+                    {reschedulingTask.title}
                   </Text>
-                  <Pressable
-                    style={styles.monthArrow}
-                    onPress={() => changeRescheduleMonth(1)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Next month"
-                  >
-                    <Text style={styles.monthArrowText}>›</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.weekdaysRow}>
-                  {["M", "T", "W", "T", "F", "S", "S"].map(
-                    (weekday, index) => (
-                      <Text
-                        key={`${weekday}-${index}`}
-                        style={styles.weekdayLabel}
-                      >
-                        {weekday}
-                      </Text>
-                    ),
-                  )}
-                </View>
-                <View style={styles.calendarGrid}>
-                  {rescheduleDays.map((date, index) => {
-                    if (!date) {
-                      return (
-                        <View
-                          key={`empty-${index}`}
-                          style={styles.calendarCell}
-                        />
-                      );
-                    }
-
-                    const dateKey = getDateKey(date);
-                    const isTaskDate = dateKey === reschedulingTask.dueDate;
-                    return (
-                      <View key={dateKey} style={styles.calendarCell}>
-                        <Pressable
-                          style={[
-                            styles.calendarDay,
-                            isTaskDate && styles.calendarDaySelected,
-                          ]}
-                          onPress={() => chooseRescheduleDate(date)}
-                          accessibilityRole="button"
-                          accessibilityLabel={date.toLocaleDateString(
-                            "en-US",
-                            { month: "long", day: "numeric" },
-                          )}
-                          accessibilityState={{ selected: isTaskDate }}
+                  <View style={styles.calendarHeader}>
+                    <Pressable
+                      style={styles.monthArrow}
+                      onPress={() => changeRescheduleMonth(-1)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Previous month"
+                    >
+                      <Text style={styles.monthArrowText}>‹</Text>
+                    </Pressable>
+                    <Text style={styles.monthTitle}>
+                      {rescheduleMonth.toLocaleDateString("en-US", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </Text>
+                    <Pressable
+                      style={styles.monthArrow}
+                      onPress={() => changeRescheduleMonth(1)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Next month"
+                    >
+                      <Text style={styles.monthArrowText}>›</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.weekdaysRow}>
+                    {["M", "T", "W", "T", "F", "S", "S"].map(
+                      (weekday, index) => (
+                        <Text
+                          key={`${weekday}-${index}`}
+                          style={styles.weekdayLabel}
                         >
-                          <Text
+                          {weekday}
+                        </Text>
+                      ),
+                    )}
+                  </View>
+                  <View style={styles.calendarGrid}>
+                    {rescheduleDays.map((date, index) => {
+                      if (!date) {
+                        return (
+                          <View
+                            key={`empty-${index}`}
+                            style={styles.calendarCell}
+                          />
+                        );
+                      }
+
+                      const dateKey = getDateKey(date);
+                      const isTaskDate = dateKey === reschedulingTask.dueDate;
+                      return (
+                        <View key={dateKey} style={styles.calendarCell}>
+                          <Pressable
                             style={[
-                              styles.calendarDayText,
-                              isTaskDate && styles.calendarDayTextSelected,
+                              styles.calendarDay,
+                              isTaskDate && styles.calendarDaySelected,
                             ]}
+                            onPress={() => chooseRescheduleDate(date)}
+                            accessibilityRole="button"
+                            accessibilityLabel={date.toLocaleDateString(
+                              "en-US",
+                              { month: "long", day: "numeric" },
+                            )}
+                            accessibilityState={{ selected: isTaskDate }}
                           >
-                            {date.getDate()}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    );
-                  })}
+                            <Text
+                              style={[
+                                styles.calendarDayText,
+                                isTaskDate && styles.calendarDayTextSelected,
+                              ]}
+                            >
+                              {date.getDate()}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.datePickerFooter}>
+                    <Pressable
+                      style={styles.cancelButton}
+                      onPress={() => setReschedulingTaskId(null)}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </Pressable>
+                  </View>
                 </View>
-                <View style={styles.datePickerFooter}>
-                  <Pressable
-                    style={styles.cancelButton}
-                    onPress={() => setReschedulingTaskId(null)}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </SlidingPanel>
+              </SlidingPanel>
+            </View>
           )}
         </View>
       </Modal>
@@ -1412,6 +1503,13 @@ export default function App() {
                           Repeats {task.recurrence}
                         </Text>
                       )}
+                      {task.subtasks.length > 0 && (
+                        <Text style={styles.taskSubtaskProgress}>
+                          {task.subtasks.filter((subtask) => subtask.completed)
+                            .length}
+                          /{task.subtasks.length} steps
+                        </Text>
+                      )}
                     </View>
                     <View
                       style={[
@@ -1434,6 +1532,8 @@ export default function App() {
                     style={styles.moreButton}
                     onPress={() => {
                       animatePanelChange();
+                      setChecklistTaskId(null);
+                      setNewSubtaskTitle("");
                       setSelectedTaskId((currentId) =>
                         currentId === task.id ? null : task.id,
                       );
@@ -1445,7 +1545,104 @@ export default function App() {
                   </Pressable>
                 </View>
 
-                {editingTaskId === task.id ? (
+                {checklistTaskId === task.id ? (
+                  <SlidingPanel>
+                    <View
+                      style={[
+                        styles.taskActionPanel,
+                        styles.editTaskActionPanel,
+                      ]}
+                    >
+                      <Text style={styles.checklistHeading}>Checklist</Text>
+                      {task.subtasks.map((subtask) => (
+                        <View key={subtask.id} style={styles.checklistItem}>
+                          <Pressable
+                            style={styles.checklistItemToggle}
+                            onPress={() => toggleSubtask(task.id, subtask.id)}
+                            accessibilityRole="checkbox"
+                            accessibilityLabel={subtask.title}
+                            accessibilityState={{
+                              checked: subtask.completed,
+                            }}
+                          >
+                            <View
+                              style={[
+                                styles.checklistCheckbox,
+                                subtask.completed &&
+                                  styles.checklistCheckboxCompleted,
+                              ]}
+                            >
+                              {subtask.completed && (
+                                <Text style={styles.checklistCheckmark}>✓</Text>
+                              )}
+                            </View>
+                            <Text
+                              style={[
+                                styles.checklistItemText,
+                                subtask.completed &&
+                                  styles.checklistItemTextCompleted,
+                              ]}
+                            >
+                              {subtask.title}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.checklistDeleteButton}
+                            onPress={() =>
+                              deleteSubtask(task.id, subtask.id)
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel={`Delete step: ${subtask.title}`}
+                          >
+                            <Text style={styles.checklistDeleteText}>×</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                      <View style={styles.checklistAddRow}>
+                        <TextInput
+                          style={styles.checklistInput}
+                          value={newSubtaskTitle}
+                          onChangeText={setNewSubtaskTitle}
+                          placeholder="Add a step"
+                          placeholderTextColor={theme.colors.placeholder}
+                          maxLength={80}
+                          returnKeyType="done"
+                          onSubmitEditing={() => addSubtask(task.id)}
+                          onFocus={() =>
+                            requestAnimationFrame(() => {
+                              scrollRef.current?.scrollToEnd({
+                                animated: true,
+                              });
+                            })
+                          }
+                          accessibilityLabel="New checklist step"
+                        />
+                        <Pressable
+                          style={[
+                            styles.checklistAddButton,
+                            !newSubtaskTitle.trim() &&
+                              styles.saveButtonDisabled,
+                          ]}
+                          onPress={() => addSubtask(task.id)}
+                          disabled={!newSubtaskTitle.trim()}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.checklistAddText}>Add</Text>
+                        </Pressable>
+                      </View>
+                      <Pressable
+                        style={styles.checklistDoneButton}
+                        onPress={() => {
+                          setChecklistTaskId(null);
+                          setNewSubtaskTitle("");
+                        }}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.editActionText}>Done</Text>
+                      </Pressable>
+                    </View>
+                  </SlidingPanel>
+                ) : editingTaskId === task.id ? (
                   <SlidingPanel>
                     <View
                       style={[
@@ -1535,12 +1732,30 @@ export default function App() {
                           setEditedTaskNotes(task.notes);
                           setEditedTaskPriority(task.priority);
                           setEditedTaskRecurrence(task.recurrence);
+                          setChecklistTaskId(null);
                           setEditingTaskId(task.id);
                           setSelectedTaskId(null);
                         }}
                         accessibilityRole="button"
                       >
                         <Text style={styles.editActionText}>Edit</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.actionButton}
+                        onPress={() => {
+                          animatePanelChange();
+                          setChecklistTaskId(task.id);
+                          setNewSubtaskTitle("");
+                          setSelectedTaskId(null);
+                        }}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.editActionText}>
+                          Checklist
+                          {task.subtasks.length > 0
+                            ? ` (${task.subtasks.length})`
+                            : ""}
+                        </Text>
                       </Pressable>
                       <Pressable
                         style={styles.actionButton}
@@ -2045,6 +2260,12 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  taskSubtaskProgress: {
+    color: colors.mutedText,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 11,
+    marginTop: 2,
+  },
   priorityBadge: {
     alignSelf: "center",
     borderRadius: 10,
@@ -2084,6 +2305,7 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   },
   taskActionPanel: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -2095,6 +2317,100 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
   editTaskActionPanel: {
     alignItems: "stretch",
     flexDirection: "column",
+    flexWrap: "nowrap",
+  },
+  checklistHeading: {
+    color: colors.text,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 15,
+    marginBottom: 4,
+  },
+  checklistItem: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 40,
+  },
+  checklistItemToggle: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    minHeight: 40,
+  },
+  checklistCheckbox: {
+    alignItems: "center",
+    borderColor: colors.primary,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    height: 20,
+    justifyContent: "center",
+    marginRight: 10,
+    width: 20,
+  },
+  checklistCheckboxCompleted: {
+    backgroundColor: colors.primary,
+  },
+  checklistCheckmark: {
+    color: colors.primaryText,
+    fontFamily: "Nunito_800ExtraBold",
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  checklistItemText: {
+    color: colors.text,
+    flex: 1,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 14,
+  },
+  checklistItemTextCompleted: {
+    color: colors.mutedText,
+    textDecorationLine: "line-through",
+  },
+  checklistDeleteButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  checklistDeleteText: {
+    color: colors.danger,
+    fontFamily: "Nunito_600SemiBold",
+    fontSize: 22,
+  },
+  checklistAddRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginTop: 6,
+  },
+  checklistInput: {
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.text,
+    flex: 1,
+    fontFamily: "Nunito_400Regular",
+    fontSize: 14,
+    marginRight: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  checklistAddButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  checklistAddText: {
+    color: colors.primaryText,
+    fontFamily: "Nunito_700Bold",
+    fontSize: 13,
+  },
+  checklistDoneButton: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
   prioritySelector: {
     alignItems: "center",
@@ -2230,6 +2546,10 @@ const createStyles = (colors: AppTheme["colors"]) => StyleSheet.create({
     borderWidth: 1,
     maxWidth: 420,
     padding: 16,
+    width: "100%",
+  },
+  datePickerDialogContainer: {
+    maxWidth: 380,
     width: "100%",
   },
   searchScreen: {
